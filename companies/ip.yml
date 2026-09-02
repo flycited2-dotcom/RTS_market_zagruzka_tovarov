@@ -1,0 +1,12 @@
+title: "ИП"
+vat_mode: none
+markup: 2.0
+rounding: ruble
+validity_days: 21
+photo_base_url: ""
+delivery:
+  by_carrier: "ДА"
+  by_seller: "НЕТ"
+  pickup: "НЕТ"
+warehouse_address: ""
+delivery_terms: ""
