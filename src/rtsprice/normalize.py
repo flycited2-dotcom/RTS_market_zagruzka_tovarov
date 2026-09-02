@@ -101,8 +101,9 @@ def normalize_source(
 
         stock = parse_number(values.get("stock"))
         if cfg.min_stock is not None and (stock is None or stock < cfg.min_stock):
+            reason = "нет данных об остатке" if stock is None else "остаток ниже минимального"
             rejected.append(Rejection(cfg.code, article, row.row_number, "stock",
-                                      "остаток ниже минимального", str(values.get("stock"))))
+                                      reason, _text(values.get("stock")) or ""))
             continue
 
         name = _text(values.get("name"))
@@ -115,7 +116,7 @@ def normalize_source(
         if price is None or price <= 0:
             rejected.append(Rejection(cfg.code, article, row.row_number, "price",
                                       "цена не число или не положительна",
-                                      str(values.get("price"))))
+                                      _text(values.get("price")) or ""))
             continue
 
         unit = (
@@ -128,9 +129,11 @@ def normalize_source(
         if barcode is not None and not (barcode.isdigit() and len(barcode) == 13):
             barcode = None
 
+        # _text здесь по той же причине, что и для артикула: без него число из .xls
+        # попало бы в описание как «15.0», а из .xlsx — как «15».
         attributes = {
-            k: str(v) for k, v in values.items()
-            if k not in KNOWN_FIELDS and v is not None and str(v).strip()
+            k: _text(v) for k, v in values.items()
+            if k not in KNOWN_FIELDS and _text(v)
         }
         template_values: dict[str, object] = dict(attributes)
         template_values.update({
