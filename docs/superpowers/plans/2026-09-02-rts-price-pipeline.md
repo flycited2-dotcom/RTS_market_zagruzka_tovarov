@@ -561,8 +561,8 @@ git commit -m "feat: справочники ОКЕИ и ОКПД2, разреш�
 **Интерфейсы:**
 - Потребляет: `SourceConfig` из задачи 1
 - Производит: `RawRow(source, sheet, row_number, values: dict[str, object])`,
-  `header_key(parts) -> str`, `find_source_file(pattern) -> Path`,
-  `read_source(cfg, path) -> list[RawRow]`
+  `header_key(parts) -> str`, `parse_number(value) -> float | None`,
+  `find_source_file(pattern) -> Path`, `read_source(cfg, path) -> list[RawRow]`
 
 Шапка склеивается из строк `header_rows`: значения непустых ячеек одной колонки соединяются
 пробелом сверху вниз. Это разрешает три реальных случая: шапка в одной строке (Промет), шапка,
@@ -751,15 +751,33 @@ def _grid(path: Path, sheet_names: tuple[str, ...]) -> list[tuple[str, list[list
     return result
 
 
+def parse_number(value: object) -> float | None:
+    """Разобрать число в форматах «17 050,00», «1 178.17», 1178.17.
+
+    Русские выгрузки разделяют разряды обычным, неразрывным или узким
+    неразрывным пробелом. Класс ``\s`` в Python покрывает их все, поэтому
+    перечислять символы поимённо не нужно — и невозможно потерять один из
+    них при копировании кода.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = re.sub(r"\s", "", str(value)).replace(",", ".")
+    if not re.fullmatch(r"-?\d+(\.\d+)?", text):
+        return None
+    return float(text)
+
+
 def _is_product(rule: str, values: dict[str, object]) -> bool:
     if rule == "price_not_empty":
         price = values.get("price")
         if price is None or not str(price).strip():
             return False
-        try:
-            return float(str(price).replace(" ", "").replace(" ", "").replace(",", ".")) != 0
-        except ValueError:
-            return True
+        number = parse_number(price)
+        # Неразбираемое значение («по запросу») остаётся товарной строкой:
+        # её отклонит слой нормализации с внятной причиной.
+        return number is None or number != 0
     if rule == "barcode13":
         barcode = str(values.get("barcode") or "").strip()
         return barcode.isdigit() and len(barcode) == 13
@@ -1093,7 +1111,7 @@ git commit -m "feat: генерация описаний и обрезка по 
 - Тест: `tests/test_normalize.py`
 
 **Интерфейсы:**
-- Потребляет: `SourceConfig` (задача 1), `resolve_unit` (задача 2), `RawRow` (задача 3),
+- Потребляет: `SourceConfig` (задача 1), `resolve_unit` (задача 2), `RawRow` и `parse_number` (задача 3),
   `IdMap` (задача 4), `build_description`, `truncate`, `NAME_LIMIT` (задача 5)
 - Производит: `Item`, `Rejection`, `normalize_source(cfg, rows, idmap, stoplist, units, aliases) ->
   tuple[list[Item], list[Rejection]]`
@@ -1240,7 +1258,7 @@ from dataclasses import dataclass, field
 from .config import SourceConfig
 from .describe import NAME_LIMIT, build_description, truncate
 from .identity import IdMap
-from .readers import RawRow
+from .readers import RawRow, parse_number
 from .reference import resolve_unit
 
 KNOWN_FIELDS = (
@@ -1275,18 +1293,6 @@ class Rejection:
     field: str
     reason: str
     value: str = ""
-
-
-def parse_number(value: object) -> float | None:
-    """Разобрать число в форматах «17 050,00», «1 178.17», 1178.17."""
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = re.sub(r"[\s ]", "", str(value)).replace(",", ".")
-    if not re.fullmatch(r"-?\d+(\.\d+)?", text):
-        return None
-    return float(text)
 
 
 def _text(value: object) -> str | None:
