@@ -754,7 +754,12 @@ def _grid(path: Path, sheet_names: tuple[str, ...]) -> list[tuple[str, list[list
 def _is_product(rule: str, values: dict[str, object]) -> bool:
     if rule == "price_not_empty":
         price = values.get("price")
-        return price is not None and str(price).strip() not in ("", "0")
+        if price is None or not str(price).strip():
+            return False
+        try:
+            return float(str(price).replace(" ", "").replace(" ", "").replace(",", ".")) != 0
+        except ValueError:
+            return True
     if rule == "barcode13":
         barcode = str(values.get("barcode") or "").strip()
         return barcode.isdigit() and len(barcode) == 13

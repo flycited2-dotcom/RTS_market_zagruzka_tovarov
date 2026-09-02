@@ -92,3 +92,41 @@ def test_find_source_file_returns_newest(tmp_path: Path):
     new.write_bytes(b"y")
     os.utime(old, (time.time() - 500, time.time() - 500))
     assert find_source_file(str(d / "*.xlsx")) == new
+
+
+def test_price_not_empty_rule_numeric_zero(tmp_path: Path):
+    """Zero prices (int, float, string) should be filtered out; non-numeric should pass through."""
+    p = _book(tmp_path / "p.xlsx", [
+        ["Артикул", "Наименование", "Цена"],
+        ["A-1", "Integer zero", 0],
+        ["A-2", "Float zero", 0.0],
+        ["A-3", "String 0.00", "0.00"],
+        ["A-4", "String 0", "0"],
+        ["A-5", "Empty string", ""],
+        ["A-6", "None price", None],
+        ["A-7", "Valid price", 100],
+        ["A-8", "Space formatted", "17 050,00"],
+        ["A-9", "Non-breaking space", "17 050,00"],  # non-breaking space, will be written as actual unicode
+        ["A-10", "Non-numeric", "по запросу"],
+    ])
+
+    rows = read_source(_cfg(), p)
+    # Rows A-1 to A-6 should be filtered out (zero or empty)
+    # Rows A-7 to A-10 should pass through (valid price or non-numeric)
+    assert [r.values["article"] for r in rows] == ["A-7", "A-8", "A-9", "A-10"]
+
+
+def test_price_not_empty_rule_space_variants(tmp_path: Path):
+    """Test regular space and non-breaking space in formatted prices."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Лист1"
+    ws.append(["Артикул", "Наименование", "Цена"])
+    ws.append(["A-1", "With regular space", "50 000,50"])
+    ws.append(["A-2", "With nbsp", f"50 000,50"])  # U+00A0 non-breaking space
+    wb.save(tmp_path / "p.xlsx")
+
+    rows = read_source(_cfg(), tmp_path / "p.xlsx")
+    assert len(rows) == 2
+    assert rows[0].values["article"] == "A-1"
+    assert rows[1].values["article"] == "A-2"
