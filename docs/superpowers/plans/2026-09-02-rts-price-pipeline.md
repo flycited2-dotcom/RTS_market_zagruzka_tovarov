@@ -3499,7 +3499,7 @@ EXPECTED_MINIMUM = {
 
 
 @pytest.mark.parametrize("code", sorted(EXPECTED_MINIMUM))
-def test_source_reads_and_normalizes(code: str):
+def test_source_reads_and_normalizes(code: str, tmp_path: Path):
     sources = load_sources(ROOT / "sources.yml")
     cfg = sources[code]
     path = find_source_file(cfg.file_glob)
@@ -3509,7 +3509,7 @@ def test_source_reads_and_normalizes(code: str):
 
     units = load_units(ROOT / "reference" / "okei.csv")
     aliases = load_unit_aliases(ROOT / "reference" / "unit_aliases.yml")
-    items, rejected = normalize_source(cfg, rows, IdMap(Path("/tmp") / f"{code}.csv"),
+    items, rejected = normalize_source(cfg, rows, IdMap(tmp_path / f"{code}.csv"),
                                        set(), units, aliases)
     assert len(items) >= 0.8 * len(rows), (
         f"{code}: отсеяно больше 20% строк, причины: "
