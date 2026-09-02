@@ -1524,7 +1524,7 @@ def test_round_price_rules():
     assert round_price(100.2, "ruble") == 101.0
     assert round_price(100.0, "ruble") == 100.0
     assert round_price(101.0, "ten") == 110.0
-    assert round_price(100.234, "none") == pytest.approx(100.23)
+    assert round_price(100.234, "none") == pytest.approx(100.24)
 
 
 def test_markup_prefers_group_then_source_then_company():
@@ -1533,6 +1533,17 @@ def test_markup_prefers_group_then_source_then_company():
     assert markup_for(src, "Сейфы", company) == 1.5
     assert markup_for(src, "Прочее", company) == 1.2
     assert markup_for(_src(), "Прочее", company) == 1.1
+
+
+def test_markup_zero_in_group_is_honoured_not_ignored():
+    src = _src(markup=1.2, markup_by_group={"Промо": 0.0})
+    assert markup_for(src, "Промо", _co(markup=1.1)) == 0.0
+
+
+def test_round_price_none_rounds_up_not_to_even():
+    assert round_price(100.234, "none") == pytest.approx(100.24)
+    assert round_price(100.23, "none") == pytest.approx(100.23)
+    assert round_price(0.125, "none") == pytest.approx(0.13)
 
 
 def test_final_price_for_company_with_vat():
@@ -1602,20 +1613,32 @@ def to_gross(price: float, includes_vat: bool) -> float:
 
 
 def markup_for(source_cfg: SourceConfig, group: str | None, company_cfg: CompanyConfig) -> float:
-    by_group = source_cfg.markup_by_group.get(group or "")
-    if by_group:
-        return float(by_group)
-    if source_cfg.markup and source_cfg.markup != 1.0:
+    """Наценка от частного к общему: группа, затем источник, затем компания.
+
+    Правило по группе выбирается по наличию ключа, а не по истинности значения:
+    наценка 0 — конфигурация бессмысленная, но она должна дать цену 0 и громкий
+    отказ на слое проверки, а не тихо провалиться на уровень выше.
+    """
+    key = group or ""
+    if key in source_cfg.markup_by_group:
+        return float(source_cfg.markup_by_group[key])
+    if source_cfg.markup != 1.0:
         return float(source_cfg.markup)
     return float(company_cfg.markup)
 
 
 def round_price(value: float, rule: str) -> float:
+    """Округление всегда вверх, включая режим none.
+
+    Округлённая вниз цена — подарок покупателю на каждой проданной единице.
+    Поправка 1e-9 гасит двоичный мусор, чтобы математически точное значение
+    не уехало на целый рубль вверх.
+    """
     if rule == "ruble":
         return float(math.ceil(value - 1e-9))
     if rule == "ten":
         return float(math.ceil((value - 1e-9) / 10.0) * 10)
-    return round(float(value), 2)
+    return math.ceil(value * 100 - 1e-9) / 100
 
 
 def vat_label(company_cfg: CompanyConfig) -> str:
@@ -1643,7 +1666,7 @@ def final_price(item: Item, source_cfg: SourceConfig, company_cfg: CompanyConfig
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_pricing.py -v`
-Ожидается: PASS, 11 тестов
+Ожидается: PASS, 13 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
