@@ -1697,8 +1697,9 @@ git commit -m "feat: расчёт цены, НДС и округления по 
 from rtsprice.config import CompanyConfig, SourceConfig
 from rtsprice.normalize import Item
 from rtsprice.render import (
-    C_BARCODE, C_DELETE, C_DESCRIPTION, C_ID, C_IMAGE_FIRST, C_NAME, C_PRICE,
-    C_REGION, C_UNIT, C_VALIDITY, C_VAT, COLUMN_COUNT, HEADER_ROW_1, HEADER_ROW_2, render_row,
+    C_BARCODE, C_DELETE, C_DESCRIPTION, C_FILE_FIRST, C_ID, C_IMAGE_FIRST, C_NAME,
+    C_PRICE, C_REGION, C_UNIT, C_VALIDITY, C_VAT, COLUMN_COUNT, HEADER_ROW_1,
+    HEADER_ROW_2, render_row,
 )
 
 
@@ -1762,6 +1763,19 @@ def test_render_row_places_photos_in_order():
 def test_render_row_limits_photos_to_five():
     row = render_row(_item(), _src(), _co(), [f"u{i}" for i in range(9)])
     assert row[C_IMAGE_FIRST + 4] == "u4"
+    assert row[C_BARCODE] is None
+
+
+def test_render_row_treats_zero_validity_as_no_expiry():
+    row = render_row(_item(), _src(), _co(validity_days=0), [])
+    assert row[C_VALIDITY] is None
+
+
+def test_render_row_places_files_in_order_and_caps_at_three():
+    row = render_row(_item(), _src(), _co(), [], ["f1", "f2", "f3", "f4"])
+    assert row[C_FILE_FIRST] == "f1"
+    assert row[C_FILE_FIRST + 1] == "f2"
+    assert row[C_FILE_FIRST + 2] == "f3"
     assert row[C_BARCODE] is None
 
 
@@ -1883,6 +1897,8 @@ def render_row(
     row[C_COUNTRY] = item.country
     if item.country and item.country.strip().casefold() == RUSSIA:
         row[C_REGION] = item.region
+    # Ноль трактуется как «без срока»: пустая ячейка на площадке означает
+    # именно это, а срок в ноль дней снял бы позицию с витрины в день загрузки.
     row[C_VALIDITY] = company_cfg.validity_days or None
 
     for offset, url in enumerate((photo_urls or [])[:MAX_IMAGES]):
@@ -1895,7 +1911,7 @@ def render_row(
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_render.py -v`
-Ожидается: PASS, 7 тестов
+Ожидается: PASS, 9 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
