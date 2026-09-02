@@ -97,6 +97,8 @@ def render_row(
     row[C_COUNTRY] = item.country
     if item.country and item.country.strip().casefold() == RUSSIA:
         row[C_REGION] = item.region
+    # Ноль трактуется как «без срока»: пустая ячейка на площадке означает
+    # именно это, а срок в ноль дней снял бы позицию с витрины в день загрузки.
     row[C_VALIDITY] = company_cfg.validity_days or None
 
     for offset, url in enumerate((photo_urls or [])[:MAX_IMAGES]):
