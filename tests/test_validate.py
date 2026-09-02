@@ -64,6 +64,13 @@ def test_fixes_long_name_and_description():
     assert {i.level for i in issues} == {"fix"}
 
 
+def test_rejects_name_that_truncation_emptied():
+    fixed, issues = validate_and_fix(_row(**{str(C_NAME): "," * 250}), UNITS, OKPD2, set())
+    assert fixed is None
+    assert issues[0].level == "reject"
+    assert "опустело" in issues[0].reason
+
+
 def test_clears_bad_barcode():
     fixed, issues = validate_and_fix(_row(**{str(C_BARCODE): "12345"}), UNITS, OKPD2, set())
     assert fixed[C_BARCODE] is None

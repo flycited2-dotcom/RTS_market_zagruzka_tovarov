@@ -54,12 +54,19 @@ def validate_and_fix(
         return None, [Issue("reject", "Единица измерения",
                             "значение отсутствует в справочнике ОКЕИ", unit)]
 
+    # Обрезка отрезает хвост после последнего пробела и снимает знаки препинания,
+    # поэтому строка из одних запятых схлопывается в пустую. Поле обязательное,
+    # так что после обрезки его проверяют повторно.
     if len(str(out[C_NAME])) > NAME_LIMIT:
         out[C_NAME] = truncate(out[C_NAME], NAME_LIMIT)
         issues.append(Issue("fix", "Наименование", "обрезано до 200 символов"))
+    if not str(out[C_NAME]).strip():
+        return None, [Issue("reject", "Наименование", "после обрезки поле опустело")]
     if len(str(out[C_DESCRIPTION])) > DESCRIPTION_LIMIT:
         out[C_DESCRIPTION] = truncate(out[C_DESCRIPTION], DESCRIPTION_LIMIT)
         issues.append(Issue("fix", "Описание", "обрезано до 2000 символов"))
+    if not str(out[C_DESCRIPTION]).strip():
+        return None, [Issue("reject", "Описание", "после обрезки поле опустело")]
 
     barcode = str(out[C_BARCODE] or "").strip()
     if barcode and not (barcode.isdigit() and len(barcode) == 13):
