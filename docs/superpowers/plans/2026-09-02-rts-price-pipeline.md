@@ -1241,6 +1241,26 @@ def test_integer_article_read_as_float_gets_one_identity(tmp_path: Path):
     assert rejected[0].reason == "дубль артикула в прайсе"
 
 
+def test_min_stock_reports_missing_stock_separately(tmp_path: Path):
+    cfg = _cfg(columns={"article": "A", "name": "N", "price": "P", "stock": "S"}, min_stock=1)
+    idmap = IdMap(tmp_path / "m.csv")
+    items, rejected = normalize_source(cfg, [_row(stock=None)], idmap, set(), UNITS, {})
+    assert items == []
+    assert rejected[0].reason == "нет данных об остатке"
+    assert rejected[0].value == ""
+
+
+def test_numeric_attribute_is_canonicalised_for_description(tmp_path: Path):
+    cfg = _cfg(columns={"article": "A", "name": "N", "price": "P", "diameter": "D"},
+               description_template="{name}
+Диаметр: {diameter}")
+    idmap = IdMap(tmp_path / "m.csv")
+    items, _ = normalize_source(cfg, [_row(diameter=15.0)], idmap, set(), UNITS, {})
+    assert items[0].attributes["diameter"] == "15"
+    assert items[0].description == "Товар
+Диаметр: 15"
+
+
 def test_duplicate_article_within_source_rejected(tmp_path: Path):
     idmap = IdMap(tmp_path / "m.csv")
     items, rejected = normalize_source(_cfg(), [_row(), _row(3)], idmap, set(), UNITS, {})
@@ -1359,8 +1379,9 @@ def normalize_source(
 
         stock = parse_number(values.get("stock"))
         if cfg.min_stock is not None and (stock is None or stock < cfg.min_stock):
+            reason = "нет данных об остатке" if stock is None else "остаток ниже минимального"
             rejected.append(Rejection(cfg.code, article, row.row_number, "stock",
-                                      "остаток ниже минимального", str(values.get("stock"))))
+                                      reason, _text(values.get("stock")) or ""))
             continue
 
         name = _text(values.get("name"))
@@ -1373,7 +1394,7 @@ def normalize_source(
         if price is None or price <= 0:
             rejected.append(Rejection(cfg.code, article, row.row_number, "price",
                                       "цена не число или не положительна",
-                                      str(values.get("price"))))
+                                      _text(values.get("price")) or ""))
             continue
 
         unit = (
@@ -1386,9 +1407,11 @@ def normalize_source(
         if barcode is not None and not (barcode.isdigit() and len(barcode) == 13):
             barcode = None
 
+        # _text здесь по той же причине, что и для артикула: без него число из .xls
+        # попало бы в описание как «15.0», а из .xlsx — как «15».
         attributes = {
-            k: str(v) for k, v in values.items()
-            if k not in KNOWN_FIELDS and v is not None and str(v).strip()
+            k: _text(v) for k, v in values.items()
+            if k not in KNOWN_FIELDS and _text(v)
         }
         template_values: dict[str, object] = dict(attributes)
         template_values.update({
@@ -1420,7 +1443,7 @@ def normalize_source(
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_normalize.py -v`
-Ожидается: PASS, 12 тестов
+Ожидается: PASS, 14 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
