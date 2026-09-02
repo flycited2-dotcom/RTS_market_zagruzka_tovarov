@@ -2007,6 +2007,13 @@ def test_fixes_long_name_and_description():
     assert {i.level for i in issues} == {"fix"}
 
 
+def test_rejects_name_that_truncation_emptied():
+    fixed, issues = validate_and_fix(_row(**{str(C_NAME): "," * 250}), UNITS, OKPD2, set())
+    assert fixed is None
+    assert issues[0].level == "reject"
+    assert "опустело" in issues[0].reason
+
+
 def test_clears_bad_barcode():
     fixed, issues = validate_and_fix(_row(**{str(C_BARCODE): "12345"}), UNITS, OKPD2, set())
     assert fixed[C_BARCODE] is None
@@ -2097,12 +2104,19 @@ def validate_and_fix(
         return None, [Issue("reject", "Единица измерения",
                             "значение отсутствует в справочнике ОКЕИ", unit)]
 
+    # Обрезка отрезает хвост после последнего пробела и снимает знаки препинания,
+    # поэтому строка из одних запятых схлопывается в пустую. Поле обязательное,
+    # так что после обрезки его проверяют повторно.
     if len(str(out[C_NAME])) > NAME_LIMIT:
         out[C_NAME] = truncate(out[C_NAME], NAME_LIMIT)
         issues.append(Issue("fix", "Наименование", "обрезано до 200 символов"))
+    if not str(out[C_NAME]).strip():
+        return None, [Issue("reject", "Наименование", "после обрезки поле опустело")]
     if len(str(out[C_DESCRIPTION])) > DESCRIPTION_LIMIT:
         out[C_DESCRIPTION] = truncate(out[C_DESCRIPTION], DESCRIPTION_LIMIT)
         issues.append(Issue("fix", "Описание", "обрезано до 2000 символов"))
+    if not str(out[C_DESCRIPTION]).strip():
+        return None, [Issue("reject", "Описание", "после обрезки поле опустело")]
 
     barcode = str(out[C_BARCODE] or "").strip()
     if barcode and not (barcode.isdigit() and len(barcode) == 13):
@@ -2127,7 +2141,7 @@ def validate_and_fix(
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_validate.py -v`
-Ожидается: PASS, 11 тестов
+Ожидается: PASS, 12 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
