@@ -46,7 +46,7 @@ def test_round_price_rules():
     assert round_price(100.2, "ruble") == 101.0
     assert round_price(100.0, "ruble") == 100.0
     assert round_price(101.0, "ten") == 110.0
-    assert round_price(100.234, "none") == pytest.approx(100.23)
+    assert round_price(100.234, "none") == pytest.approx(100.24)
 
 
 def test_markup_prefers_group_then_source_then_company():
@@ -55,6 +55,17 @@ def test_markup_prefers_group_then_source_then_company():
     assert markup_for(src, "Сейфы", company) == 1.5
     assert markup_for(src, "Прочее", company) == 1.2
     assert markup_for(_src(), "Прочее", company) == 1.1
+
+
+def test_markup_zero_in_group_is_honoured_not_ignored():
+    src = _src(markup=1.2, markup_by_group={"Промо": 0.0})
+    assert markup_for(src, "Промо", _co(markup=1.1)) == 0.0
+
+
+def test_round_price_none_rounds_up_not_to_even():
+    assert round_price(100.234, "none") == pytest.approx(100.24)
+    assert round_price(100.23, "none") == pytest.approx(100.23)
+    assert round_price(0.125, "none") == pytest.approx(0.13)
 
 
 def test_final_price_for_company_with_vat():

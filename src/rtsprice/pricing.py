@@ -26,20 +26,32 @@ def to_gross(price: float, includes_vat: bool) -> float:
 
 
 def markup_for(source_cfg: SourceConfig, group: str | None, company_cfg: CompanyConfig) -> float:
-    by_group = source_cfg.markup_by_group.get(group or "")
-    if by_group:
-        return float(by_group)
-    if source_cfg.markup and source_cfg.markup != 1.0:
+    """Наценка от частного к общему: группа, затем источник, затем компания.
+
+    Правило по группе выбирается по наличию ключа, а не по истинности значения:
+    наценка 0 — конфигурация бессмысленная, но она должна дать цену 0 и громкий
+    отказ на слое проверки, а не тихо провалиться на уровень выше.
+    """
+    key = group or ""
+    if key in source_cfg.markup_by_group:
+        return float(source_cfg.markup_by_group[key])
+    if source_cfg.markup != 1.0:
         return float(source_cfg.markup)
     return float(company_cfg.markup)
 
 
 def round_price(value: float, rule: str) -> float:
+    """Округление всегда вверх, включая режим none.
+
+    Округлённая вниз цена — подарок покупателю на каждой проданной единице.
+    Поправка 1e-9 гасит двоичный мусор, чтобы математически точное значение
+    не уехало на целый рубль вверх.
+    """
     if rule == "ruble":
         return float(math.ceil(value - 1e-9))
     if rule == "ten":
         return float(math.ceil((value - 1e-9) / 10.0) * 10)
-    return round(float(value), 2)
+    return math.ceil(value * 100 - 1e-9) / 100
 
 
 def vat_label(company_cfg: CompanyConfig) -> str:
