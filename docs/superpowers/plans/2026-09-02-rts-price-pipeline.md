@@ -2174,7 +2174,9 @@ git commit -m "feat: проверка строк с отклонениями и 
 # tests/test_state.py
 from pathlib import Path
 
-from rtsprice.render import COLUMN_COUNT, C_DELETE, C_ID, C_NAME, C_PRICE
+from rtsprice.render import (
+    COLUMN_COUNT, C_ARTICLE, C_BARCODE, C_DELETE, C_ID, C_NAME, C_OKPD2, C_PRICE,
+)
 from rtsprice.state import deletion_rows, load_snapshot, save_snapshot
 
 
@@ -2193,6 +2195,30 @@ def test_snapshot_round_trip(tmp_path: Path):
     assert set(loaded) == {100_000_001, 100_000_002}
     assert loaded[100_000_002][C_NAME] == "Второй"
     assert loaded[100_000_001][C_PRICE] == 100.0
+
+
+def test_snapshot_preserves_leading_zeros_in_text_columns(tmp_path: Path):
+    p = tmp_path / "last.csv"
+    row = _row(100_000_001)
+    row[C_ARTICLE] = "00000001688"
+    row[C_BARCODE] = "0004670003040"
+    row[C_OKPD2] = "26.40"
+    save_snapshot(p, [row])
+    back = load_snapshot(p)[100_000_001]
+    assert back[C_ARTICLE] == "00000001688"
+    assert back[C_BARCODE] == "0004670003040"
+    assert back[C_OKPD2] == "26.40"
+
+
+def test_load_snapshot_skips_row_with_unparsable_id(tmp_path: Path):
+    p = tmp_path / "last.csv"
+    save_snapshot(p, [_row(100_000_001), _row(100_000_002)])
+    lines = p.read_text(encoding="utf-8-sig").splitlines()
+    lines[1] = lines[1].replace("100000002", "мусор", 1)
+    p.write_text("
+".join(lines) + "
+", encoding="utf-8-sig")
+    assert set(load_snapshot(p)) == {100_000_001}
 
 
 def test_load_snapshot_missing_file_is_empty(tmp_path: Path):
@@ -2234,17 +2260,28 @@ import csv
 from pathlib import Path
 
 from .identity import prefix_of
-from .render import C_DELETE, C_ID, COLUMN_COUNT
+from .render import C_DELETE, C_ID, C_PRICE, C_VALIDITY, COLUMN_COUNT
+
+# Числами становятся только те колонки, которые ими и являются.
+NUMERIC_COLUMNS = (C_ID, C_PRICE, C_VALIDITY, C_DELETE)
 
 
-def _decode(value: str) -> object:
+def _decode(value: str, column: int) -> object:
+    """Восстановить значение ячейки снимка.
+
+    Разбор по колонке, а не по виду значения: артикул «00000001688» и
+    штрих-код с ведущим нулём при числовом разборе потеряли бы нули, и
+    строка снятия с продажи ушла бы на площадку с испорченными полями.
+    """
     if value == "":
         return None
+    if column not in NUMERIC_COLUMNS:
+        return value
     try:
         number = float(value)
     except ValueError:
         return value
-    return int(number) if number.is_integer() and "." not in value else number
+    return int(number) if number.is_integer() else number
 
 
 def load_snapshot(path: Path) -> dict[int, list[object]]:
@@ -2256,9 +2293,18 @@ def load_snapshot(path: Path) -> dict[int, list[object]]:
         for raw in csv.reader(fh):
             if len(raw) < COLUMN_COUNT:
                 raw = raw + [""] * (COLUMN_COUNT - len(raw))
-            row = [_decode(v) for v in raw[:COLUMN_COUNT]]
-            if row[C_ID] is not None:
-                result[int(row[C_ID])] = row
+            row = [_decode(v, i) for i, v in enumerate(raw[:COLUMN_COUNT])]
+            if row[C_ID] is None:
+                continue
+            try:
+                rts_id = int(row[C_ID])
+            except (TypeError, ValueError):
+                # Испорченный идентификатор пропускаем, а не роняем сборку:
+                # снимок — служебный файл, и одна битая строка не повод
+                # оставить весь каталог без обновления.
+                continue
+            row[C_ID] = rts_id
+            result[rts_id] = row
     return result
 
 
@@ -2292,7 +2338,7 @@ def deletion_rows(
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_state.py -v`
-Ожидается: PASS, 5 тестов
+Ожидается: PASS, 7 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
