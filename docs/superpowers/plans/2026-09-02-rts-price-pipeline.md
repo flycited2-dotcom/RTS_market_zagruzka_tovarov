@@ -1233,6 +1233,14 @@ def test_unknown_unit_falls_back_to_default(tmp_path: Path):
     assert items[0].unit == "ШТ"
 
 
+def test_integer_article_read_as_float_gets_one_identity(tmp_path: Path):
+    idmap = IdMap(tmp_path / "m.csv")
+    rows = [_row(article=76862.0), _row(3, article=76862)]
+    items, rejected = normalize_source(_cfg(), rows, idmap, set(), UNITS, {})
+    assert items[0].article == "76862"
+    assert rejected[0].reason == "дубль артикула в прайсе"
+
+
 def test_duplicate_article_within_source_rejected(tmp_path: Path):
     idmap = IdMap(tmp_path / "m.csv")
     items, rejected = normalize_source(_cfg(), [_row(), _row(3)], idmap, set(), UNITS, {})
@@ -1296,8 +1304,17 @@ class Rejection:
 
 
 def _text(value: object) -> str | None:
+    """Привести значение ячейки к тексту.
+
+    Целое число, пришедшее как float, канонизируется: xlrd отдаёт все числа
+    как float, openpyxl — как int, и без этого один и тот же артикул получил
+    бы из .xls и .xlsx два разных ключа, а значит два идентификатора РТС и
+    дубль позиции на витрине.
+    """
     if value is None:
         return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
     out = re.sub(r"\s+", " ", str(value)).strip()
     return out or None
 
@@ -1403,7 +1420,7 @@ def normalize_source(
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_normalize.py -v`
-Ожидается: PASS, 11 тестов
+Ожидается: PASS, 12 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
