@@ -4,7 +4,7 @@ import openpyxl
 import pytest
 
 from rtsprice.config import SourceConfig
-from rtsprice.readers import header_key, find_source_file, read_source
+from rtsprice.readers import header_key, find_source_file, read_source, parse_number
 
 
 def _cfg(**over) -> SourceConfig:
@@ -94,8 +94,27 @@ def test_find_source_file_returns_newest(tmp_path: Path):
     assert find_source_file(str(d / "*.xlsx")) == new
 
 
-def test_price_not_empty_rule_numeric_zero(tmp_path: Path):
-    """Zero prices (int, float, string) should be filtered out; non-numeric should pass through."""
+def test_parse_number_returns_none_for_special_values():
+    """parse_number returns None for None, booleans, and non-numeric strings."""
+    assert parse_number(None) is None
+    assert parse_number(True) is None
+    assert parse_number(False) is None
+    assert parse_number("по запросу") is None
+    assert parse_number("1 200 - 1 500") is None
+
+
+def test_parse_number_parses_numeric_values():
+    """parse_number returns float for integers, floats, and numeric strings."""
+    assert parse_number(1178) == 1178.0
+    assert parse_number(1178.17) == 1178.17
+    assert parse_number("1178.17") == 1178.17
+    assert parse_number("17 050,00") == 17050.0
+    assert parse_number("17 050,00") == 17050.0  # NBSP U+00A0
+    assert parse_number("-5") == -5.0
+
+
+def test_price_not_empty_rule_filters_zeros_and_empty(tmp_path: Path):
+    """Zero prices (int, float, string) should be filtered out; non-numeric passes through."""
     p = _book(tmp_path / "p.xlsx", [
         ["Артикул", "Наименование", "Цена"],
         ["A-1", "Integer zero", 0],
@@ -104,29 +123,14 @@ def test_price_not_empty_rule_numeric_zero(tmp_path: Path):
         ["A-4", "String 0", "0"],
         ["A-5", "Empty string", ""],
         ["A-6", "None price", None],
-        ["A-7", "Valid price", 100],
-        ["A-8", "Space formatted", "17 050,00"],
-        ["A-9", "Non-breaking space", "17 050,00"],  # non-breaking space, will be written as actual unicode
-        ["A-10", "Non-numeric", "по запросу"],
+        ["A-7", "Zero with NBSP", "0 000,00"],
+        ["A-8", "Valid price", 100],
+        ["A-9", "Space formatted", "17 050,00"],
+        ["A-10", "NBSP formatted", "17 050,00"],
+        ["A-11", "Non-numeric", "по запросу"],
     ])
 
     rows = read_source(_cfg(), p)
-    # Rows A-1 to A-6 should be filtered out (zero or empty)
-    # Rows A-7 to A-10 should pass through (valid price or non-numeric)
-    assert [r.values["article"] for r in rows] == ["A-7", "A-8", "A-9", "A-10"]
-
-
-def test_price_not_empty_rule_space_variants(tmp_path: Path):
-    """Test regular space and non-breaking space in formatted prices."""
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Лист1"
-    ws.append(["Артикул", "Наименование", "Цена"])
-    ws.append(["A-1", "With regular space", "50 000,50"])
-    ws.append(["A-2", "With nbsp", f"50 000,50"])  # U+00A0 non-breaking space
-    wb.save(tmp_path / "p.xlsx")
-
-    rows = read_source(_cfg(), tmp_path / "p.xlsx")
-    assert len(rows) == 2
-    assert rows[0].values["article"] == "A-1"
-    assert rows[1].values["article"] == "A-2"
+    # Non-products: A-1 to A-7 (zero or empty)
+    # Products: A-8 to A-11 (valid price or non-numeric)
+    assert [r.values["article"] for r in rows] == ["A-8", "A-9", "A-10", "A-11"]

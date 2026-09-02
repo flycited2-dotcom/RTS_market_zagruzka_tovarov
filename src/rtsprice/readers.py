@@ -70,15 +70,33 @@ def _grid(path: Path, sheet_names: tuple[str, ...]) -> list[tuple[str, list[list
     return result
 
 
+def parse_number(value: object) -> float | None:
+    r"""Разобрать число в форматах «17 050,00», «1 178.17», 1178.17.
+
+    Русские выгрузки разделяют разряды обычным, неразрывным или узким
+    неразрывным пробелом. Класс ``\s`` в Python покрывает их все, поэтому
+    перечислять символы поимённо не нужно — и невозможно потерять один из
+    них при копировании кода.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = re.sub(r"\s", "", str(value)).replace(",", ".")
+    if not re.fullmatch(r"-?\d+(\.\d+)?", text):
+        return None
+    return float(text)
+
+
 def _is_product(rule: str, values: dict[str, object]) -> bool:
     if rule == "price_not_empty":
         price = values.get("price")
         if price is None or not str(price).strip():
             return False
-        try:
-            return float(str(price).replace(" ", "").replace(" ", "").replace(",", ".")) != 0
-        except ValueError:
-            return True
+        number = parse_number(price)
+        # Неразбираемое значение («по запросу») остаётся товарной строкой:
+        # её отклонит слой нормализации с внятной причиной.
+        return number is None or number != 0
     if rule == "barcode13":
         barcode = str(values.get("barcode") or "").strip()
         return barcode.isdigit() and len(barcode) == 13
