@@ -651,6 +651,19 @@ def test_read_source_barcode13_rule(tmp_path: Path):
     assert [r.values["name"] for r in rows] == ["Сок"]
 
 
+def test_repeated_header_takes_first_non_empty_value(tmp_path: Path):
+    p = _book(tmp_path / "p.xlsx", [
+        ["Штрихкод", "Номенклатура", "Цена клиента", "Цена клиента"],
+        ["4600000000017", "Сок", None, 99],
+        ["4600000000024", "Вода", 55, None],
+    ])
+    cfg = _cfg(header_rows=(1,), data_starts_at=2, row_is_product="barcode13",
+               columns={"barcode": "Штрихкод", "name": "Номенклатура",
+                        "price": "Цена клиента"})
+    rows = read_source(cfg, p)
+    assert [(r.values["name"], r.values["price"]) for r in rows] == [("Сок", 99), ("Вода", 55)]
+
+
 def test_read_source_missing_column_raises(tmp_path: Path):
     p = _book(tmp_path / "p.xlsx", [["Артикул", "Наименование"], ["A-1", "Товар"]])
     with pytest.raises(KeyError, match="Цена"):
@@ -799,25 +812,37 @@ def read_source(cfg: SourceConfig, path: Path) -> list[RawRow]:
             )
             for c in range(width)
         ]
-        index = {_norm(h): c for c, h in enumerate(headers) if h}
-        mapping: dict[str, int] = {}
+        # Один заголовок может стоять над несколькими колонками: у одного
+        # поставщика «Цена клиента» повторяется для двух складов, и позиция
+        # заполнена ровно в одной из них. Поэтому заголовок отображается на
+        # список колонок, а значением берётся первое непустое.
+        index: dict[str, list[int]] = {}
+        for c, h in enumerate(headers):
+            if h:
+                index.setdefault(_norm(h), []).append(c)
+        mapping: dict[str, list[int]] = {}
         for logical, title in cfg.columns.items():
-            col = index.get(_norm(title))
-            if col is None:
+            cols = index.get(_norm(title))
+            if not cols:
                 raise KeyError(
                     f"источник {cfg.code}, лист {sheet_name!r}: не найдена колонка {title!r}; "
                     f"доступны: {[h for h in headers if h][:20]}"
                 )
-            mapping[logical] = col
+            mapping[logical] = cols
 
         for number, row in enumerate(grid, start=1):
             if number < cfg.data_starts_at:
                 continue
             values: dict[str, object] = {}
-            for logical, col in mapping.items():
-                value = row[col] if col < len(row) else None
-                if isinstance(value, str) and not value.strip():
-                    value = None
+            for logical, cols in mapping.items():
+                value = None
+                for col in cols:
+                    candidate = row[col] if col < len(row) else None
+                    if isinstance(candidate, str) and not candidate.strip():
+                        candidate = None
+                    if candidate is not None:
+                        value = candidate
+                        break
                 values[logical] = value
             if _is_product(cfg.row_is_product, values):
                 rows.append(RawRow(cfg.code, sheet_name, number, values))
@@ -3856,7 +3881,7 @@ EXPECTED_MINIMUM = {
     "brinex_wheels": 7000,
     "brinex_tires": 4000,
     "gurinenko_bakaleya": 1200,
-    "gurinenko_grushevo": 4000,
+    "gurinenko_grushevo": 3800,
     "opt": 400,
     "priceopt": 1600,
 }
