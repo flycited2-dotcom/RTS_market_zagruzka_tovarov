@@ -2561,7 +2561,9 @@ from pathlib import Path
 from PIL import Image
 
 from rtsprice.normalize import Item
-from rtsprice.photos import LocalPublisher, PhotoResolver, find_photos, normalize_image
+from rtsprice.photos import (
+    LocalPublisher, PhotoResolver, find_photos, normalize_image, safe_name,
+)
 
 
 def _png(size: tuple[int, int] = (40, 30)) -> bytes:
@@ -2651,6 +2653,26 @@ def test_resolver_sanitizes_article_in_remote_name(tmp_path: Path):
     assert resolver.urls_for(_item("S5Z706")) == ["https://example.ru/p/promet/S5Z706_1.jpg"]
 
 
+def test_safe_name_keeps_distinct_cyrillic_articles_distinct():
+    assert safe_name("деталь-55") != safe_name("штука-55")
+    assert safe_name("Ту-00000406") != safe_name("Гу-00000406")
+    assert safe_name("S5Z706") == "S5Z706"
+
+
+def test_remote_name_uses_file_number_not_position(tmp_path: Path):
+    photos = tmp_path / "photos" / "promet"
+    photos.mkdir(parents=True)
+    (photos / "A-1_1.jpg").write_bytes(_png())
+    (photos / "A-1_3.jpg").write_bytes(_png((60, 60)))
+
+    publisher = LocalPublisher(tmp_path / "published", "https://example.ru/p")
+    resolver = PhotoResolver(tmp_path / "photos", publisher, tmp_path / "photos.json")
+    assert resolver.urls_for(_item()) == [
+        "https://example.ru/p/promet/A-1_1.jpg",
+        "https://example.ru/p/promet/A-1_3.jpg",
+    ]
+
+
 def test_resolver_returns_empty_without_photos(tmp_path: Path):
     publisher = LocalPublisher(tmp_path / "published", "https://example.ru/p")
     resolver = PhotoResolver(tmp_path / "photos", publisher, tmp_path / "photos.json")
@@ -2687,7 +2709,19 @@ UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def safe_name(value: str) -> str:
-    return UNSAFE.sub("_", str(value)).strip("_") or "item"
+    """Превратить строку в безопасный сегмент пути, не теряя различий.
+
+    Кириллица и прочие небезопасные символы схлопываются в подчёркивание,
+    поэтому к результату добавляется короткий хэш исходной строки. Без него
+    «деталь-55» и «штука-55» дали бы одно и то же имя файла, и фотография
+    одного товара затёрла бы фотографию другого.
+    """
+    text = str(value)
+    cleaned = UNSAFE.sub("_", text).strip("_")
+    if cleaned == text and cleaned:
+        return cleaned
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+    return f"{cleaned}_{digest}" if cleaned else digest
 
 
 def find_photos(root: Path, source: str, article: str, limit: int = 5) -> list[Path]:
@@ -2794,16 +2828,18 @@ class PhotoResolver:
 
     def urls_for(self, item: Item) -> list[str]:
         urls: list[str] = []
-        for index, path in enumerate(
-            find_photos(self.root, item.source, item.article, self.limit), start=1
-        ):
+        for path in find_photos(self.root, item.source, item.article, self.limit):
             raw = path.read_bytes()
             digest = hashlib.sha256(raw).hexdigest()
             known = self._manifest.get(digest)
             if known:
                 urls.append(known)
                 continue
-            remote = f"{safe_name(item.source)}/{safe_name(item.article)}_{index}.jpg"
+            # Номер берётся из имени файла, а не из позиции в списке: если
+            # удалить средний снимок, следующий занял бы чужой адрес и затёр
+            # бы по нему другое содержимое, оставив ссылку в строке прежней.
+            number = SUFFIX_PATTERN.search(path.stem).group(1)
+            remote = f"{safe_name(item.source)}/{safe_name(item.article)}_{number}.jpg"
             url = self.publisher.publish(remote, normalize_image(raw))
             self._manifest[digest] = url
             urls.append(url)
@@ -2825,7 +2861,7 @@ class PhotoResolver:
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_photos.py -v`
-Ожидается: PASS, 9 тестов
+Ожидается: PASS, 11 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
