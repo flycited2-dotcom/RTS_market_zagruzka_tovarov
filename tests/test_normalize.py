@@ -3,7 +3,7 @@ from pathlib import Path
 
 from rtsprice.config import SourceConfig
 from rtsprice.identity import IdMap
-from rtsprice.normalize import normalize_source
+from rtsprice.normalize import normalize_source, parse_stock
 from rtsprice.readers import RawRow
 
 
@@ -140,3 +140,34 @@ def test_duplicate_article_within_source_rejected(tmp_path: Path):
     items, rejected = normalize_source(_cfg(), [_row(), _row(3)], idmap, set(), UNITS, {})
     assert len(items) == 1
     assert rejected[0].reason == "дубль артикула в прайсе"
+
+
+def test_parse_stock_reads_leading_comparator():
+    """«>40» означает «не меньше сорока», а не «данных нет»."""
+    assert parse_stock(">100") == 100.0
+    assert parse_stock("> 40") == 40.0
+    assert parse_stock("<5") == 5.0
+    assert parse_stock("≥10") == 10.0
+    assert parse_stock("≤ 3") == 3.0
+    assert parse_stock("17 050,00") == 17050.0
+    assert parse_stock(12) == 12.0
+    assert parse_stock(None) is None
+    assert parse_stock("по запросу") is None
+
+
+def test_best_stocked_positions_are_not_rejected(tmp_path: Path):
+    """min_stock отсекал не кончившийся товар, а лучший: «>100» не разбиралось."""
+    idmap = IdMap(tmp_path / "m.csv")
+    cfg = _cfg(min_stock=1, columns={"article": "Артикул", "name": "Наименование",
+                                     "price": "Цена", "stock": "Остаток"})
+    items, rejected = normalize_source(cfg, [_row(stock=">100")], idmap, set(), UNITS, {})
+    assert not rejected
+    assert items[0].stock == 100.0
+
+
+def test_comparator_in_price_is_still_rejected(tmp_path: Path):
+    """Сравнение допустимо в остатке и недопустимо в цене: «>100» — не цена."""
+    idmap = IdMap(tmp_path / "m.csv")
+    items, rejected = normalize_source(_cfg(), [_row(price=">100")], idmap, set(), UNITS, {})
+    assert not items
+    assert rejected[0].field == "price"

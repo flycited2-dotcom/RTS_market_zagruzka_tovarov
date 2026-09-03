@@ -58,6 +58,7 @@ brinex_tires:
     stock: "Остаток общий"
     brand: "Производитель"
     width: "Ширина"
+  min_stock: 1
   unit_default: "ШТ"
   description_template: |
     {name}

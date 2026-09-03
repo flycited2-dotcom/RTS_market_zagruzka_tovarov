@@ -44,6 +44,25 @@ class Rejection:
     value: str = ""
 
 
+STOCK_COMPARATORS = "><≥≤"
+
+
+def parse_stock(value: object) -> float | None:
+    """Разобрать остаток, допуская ведущее сравнение: «>40», «≥ 10».
+
+    Поставщик, пишущий «>100», сообщает, что товара не меньше сотни, — это
+    лучший остаток на складе, а не отсутствие данных. Без такого разбора
+    фильтр min_stock отклонял именно самые обеспеченные позиции и снимал их
+    с продажи при каждой сборке.
+
+    Только для остатка. Цена со сравнением — не цена: «от 100 рублей» нельзя
+    выставить на площадке, и такую строку правильно отклонить.
+    """
+    if isinstance(value, str):
+        value = value.strip().lstrip(STOCK_COMPARATORS)
+    return parse_number(value)
+
+
 def normalize_source(
     cfg: SourceConfig,
     rows: list[RawRow],
@@ -82,7 +101,7 @@ def normalize_source(
                                       "группа в exclude_groups", group))
             continue
 
-        stock = parse_number(values.get("stock"))
+        stock = parse_stock(values.get("stock"))
         if cfg.min_stock is not None and (stock is None or stock < cfg.min_stock):
             reason = "нет данных об остатке" if stock is None else "остаток ниже минимального"
             rejected.append(Rejection(cfg.code, article, row.row_number, "stock",
