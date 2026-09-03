@@ -51,6 +51,17 @@ class BuildResult:
 
 
 def _active(sources: dict[str, SourceConfig], only, skip) -> list[SourceConfig]:
+    # Фильтры отбирают по вхождению, поэтому опечатка в коде источника не
+    # ошибка, а пустой отбор: «build --only opechatka» записал бы поверх
+    # сегодняшнего файла один заголовок, отрапортовал ноль удалений и вышел
+    # с кодом 0. Неизвестный код — всегда опечатка, и стоить она не должна
+    # ничего.
+    unknown = sorted({*(only or ()), *(skip or ())} - set(sources))
+    if unknown:
+        raise ValueError(
+            f"неизвестные источники: {', '.join(unknown)}; "
+            f"известны: {', '.join(sorted(sources))}"
+        )
     chosen = [
         cfg for code, cfg in sources.items()
         if (not only or code in only) and (not skip or code not in skip)

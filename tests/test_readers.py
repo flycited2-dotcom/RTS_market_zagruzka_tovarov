@@ -4,7 +4,9 @@ import openpyxl
 import pytest
 
 from rtsprice.config import SourceConfig
-from rtsprice.readers import header_key, find_source_file, read_source, parse_number
+from rtsprice.readers import (
+    _is_product, header_key, find_source_file, read_source, parse_number,
+)
 
 
 def _cfg(**over) -> SourceConfig:
@@ -147,3 +149,12 @@ def test_price_not_empty_rule_filters_zeros_and_empty(tmp_path: Path):
     # Non-products: A-1 to A-7 (zero or empty)
     # Products: A-8 to A-11 (valid price or non-numeric)
     assert [r.values["article"] for r in rows] == ["A-8", "A-9", "A-10", "A-11"]
+
+
+def test_barcode_rule_accepts_barcode_arriving_as_float():
+    """Формат .xls отдаёт числа как float: 4607087560123.0 — тот же штрих-код."""
+    assert _is_product("barcode13", {"barcode": 4607087560123.0}) is True
+    assert _is_product("barcode13", {"barcode": "4607087560123"}) is True
+    assert _is_product("barcode13", {"barcode": 4607087560123}) is True
+    assert _is_product("barcode13", {"barcode": 40111216.0}) is False
+    assert _is_product("barcode13", {"barcode": None}) is False

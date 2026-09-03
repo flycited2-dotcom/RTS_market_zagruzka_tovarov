@@ -2,13 +2,12 @@
 """Приведение сырых строк прайса к позициям мастер-каталога."""
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 
 from .config import SourceConfig
 from .describe import NAME_LIMIT, build_description, truncate
 from .identity import IdMap
-from .readers import RawRow, parse_number
+from .readers import RawRow, parse_number, text_value as _text
 from .reference import resolve_unit
 
 KNOWN_FIELDS = (
@@ -43,22 +42,6 @@ class Rejection:
     field: str
     reason: str
     value: str = ""
-
-
-def _text(value: object) -> str | None:
-    """Привести значение ячейки к тексту.
-
-    Целое число, пришедшее как float, канонизируется: xlrd отдаёт все числа
-    как float, openpyxl — как int, и без этого один и тот же артикул получил
-    бы из .xls и .xlsx два разных ключа, а значит два идентификатора РТС и
-    дубль позиции на витрине.
-    """
-    if value is None:
-        return None
-    if isinstance(value, float) and value.is_integer():
-        value = int(value)
-    out = re.sub(r"\s+", " ", str(value)).strip()
-    return out or None
 
 
 def normalize_source(

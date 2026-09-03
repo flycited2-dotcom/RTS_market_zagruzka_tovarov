@@ -88,6 +88,26 @@ def parse_number(value: object) -> float | None:
     return float(text)
 
 
+def text_value(value: object) -> str | None:
+    """Привести значение ячейки к тексту.
+
+    Целое число, пришедшее как float, канонизируется: xlrd отдаёт все числа
+    как float, openpyxl — как int, и без этого один и тот же артикул получил
+    бы из .xls и .xlsx два разных ключа, а значит два идентификатора РТС и
+    дубль позиции на витрине.
+
+    Живёт в читалке, а не в нормализации, потому что признак товарной строки
+    разбирает те же самые ячейки. Разойдись эти два правила — строка с
+    штрих-кодом 4607087560123.0 исчезла бы ещё до всякого учёта.
+    """
+    if value is None:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    out = re.sub(r"\s+", " ", str(value)).strip()
+    return out or None
+
+
 def _is_product(rule: str, values: dict[str, object]) -> bool:
     if rule == "price_not_empty":
         price = values.get("price")
@@ -98,9 +118,9 @@ def _is_product(rule: str, values: dict[str, object]) -> bool:
         # её отклонит слой нормализации с внятной причиной.
         return number is None or number != 0
     if rule == "barcode13":
-        barcode = str(values.get("barcode") or "").strip()
+        barcode = text_value(values.get("barcode")) or ""
         return barcode.isdigit() and len(barcode) == 13
-    return bool(str(values.get("article") or "").strip())
+    return bool(text_value(values.get("article")))
 
 
 def read_source(cfg: SourceConfig, path: Path) -> list[RawRow]:

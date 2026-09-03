@@ -304,3 +304,22 @@ def test_source_statistics_carry_previous_snapshot_size(tmp_path: Path):
     stat = result.stats[0]
     assert stat.previous_count == 2
     assert stat.deleted == 1
+
+
+def test_unknown_only_code_aborts_instead_of_writing_empty_file(tmp_path: Path):
+    """«build --only opechatka» не должен молча перезаписать файл дня пустым."""
+    paths = _paths(tmp_path)
+    sources = {"s": _source(tmp_path, [["A-1", "Товар", 122]])}
+    with pytest.raises(ValueError) as exc:
+        build(paths, sources, _company(), only=["opechatka"])
+    assert "opechatka" in str(exc.value)
+    assert "s" in str(exc.value)
+    assert not (paths.output / "ooo_tlt.xlsx").exists()
+
+
+def test_unknown_skip_code_aborts(tmp_path: Path):
+    paths = _paths(tmp_path)
+    sources = {"s": _source(tmp_path, [["A-1", "Товар", 122]])}
+    with pytest.raises(ValueError) as exc:
+        build(paths, sources, _company(), skip=["opechatka"])
+    assert "opechatka" in str(exc.value)
