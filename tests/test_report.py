@@ -75,3 +75,25 @@ def test_report_shows_outstanding_deletions(tmp_path: Path):
     )
     assert "снимается: 4" in text
     assert "ожидают подтверждения: 7" in text
+
+
+def test_report_flags_source_losing_half_its_catalogue(tmp_path: Path):
+    """Обрезанная выгрузка поставщика — 100 строк вместо 13 756 — должна кричать."""
+    text = write_report_md(
+        tmp_path / "report.md",
+        [SourceStats("promet", "Промет", "on", "p.xlsx", 100, 0, 100,
+                     previous_count=13756, deleted=13656)],
+        {},
+    )
+    assert "ВНИМАНИЕ" in text
+    assert "13656" in text or "13 656" in text
+
+
+def test_report_quiet_about_ordinary_deletions(tmp_path: Path):
+    text = write_report_md(
+        tmp_path / "report.md",
+        [SourceStats("promet", "Промет", "on", "p.xlsx", 13756, 0, 13756,
+                     previous_count=13756, deleted=12)],
+        {},
+    )
+    assert "ВНИМАНИЕ" not in text

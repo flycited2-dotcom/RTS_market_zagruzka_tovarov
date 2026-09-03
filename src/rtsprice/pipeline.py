@@ -232,6 +232,11 @@ def build(
         PhotoResolver(paths.photos, photo_publisher, paths.state / "photos.json")
         if photo_publisher else None
     )
+    stats_by_code = {s.code: s for s in stats}
+    # Позиции, отбитые на проверке. Ключ — артикул, поэтому позиция,
+    # отклонённая для обеих компаний, считается один раз: это одна потерянная
+    # позиция каталога, а не две.
+    lost_at_validation: dict[str, dict[str, str]] = {}
 
     for company_code, company in companies.items():
         if company_codes and company_code not in company_codes:
@@ -251,6 +256,9 @@ def build(
                     result.rejections.append(Rejection(
                         cfg.code, item.article, 0, issues[0].field, issues[0].reason,
                         issues[0].value))
+                    lost_at_validation.setdefault(cfg.code, {})[item.article] = (
+                        f"{issues[0].field}: {issues[0].reason}"
+                    )
                     continue
                 rows.append(fixed)
 
@@ -285,6 +293,17 @@ def build(
         removals = deletion_rows(previous, current_ids, untouched)
         diff.deleted = len(removals)
 
+        # Числитель и знаменатель предупреждения о массовом снятии с продажи.
+        # Компаний может быть несколько, берётся худший случай по каждой.
+        was_by_prefix = Counter(prefix_of(rts_id) for rts_id in previous)
+        gone_by_prefix = Counter(prefix_of(int(row[C_ID])) for row in removals)
+        for cfg in active:
+            stat = stats_by_code.get(cfg.code)
+            if stat is None:
+                continue
+            stat.previous_count = max(stat.previous_count, was_by_prefix[cfg.prefix])
+            stat.deleted = max(stat.deleted, gone_by_prefix[cfg.prefix])
+
         pending_file = pending_path(paths, company_code)
         outstanding = merge_pending(load_snapshot(pending_file), removals, current_ids)
         diff.pending = len(outstanding)
@@ -309,6 +328,19 @@ def build(
             if prefix_of(rts_id) in untouched
         ]
         save_snapshot(snapshot_path, rows + carried)
+
+    # Отсев на стадии проверки до сих пор нигде не учитывался: источник мог
+    # рапортовать «отсеяно 0, принято 13 255», не дав в файл ни строки и сняв
+    # с продажи весь свой каталог. Статистика — последний контрольный рубеж
+    # человека, и молчать ей нельзя.
+    for code, articles in lost_at_validation.items():
+        stat = stats_by_code.get(code)
+        if stat is None:
+            continue
+        stat.rejected += len(articles)
+        stat.accepted -= len(articles)
+        for reason, count in Counter(articles.values()).items():
+            stat.reasons[reason] = stat.reasons.get(reason, 0) + count
 
     if not dry_run:
         if resolver:

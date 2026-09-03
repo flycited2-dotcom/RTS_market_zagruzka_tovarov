@@ -264,3 +264,43 @@ def test_dry_run_does_not_touch_pending_file(tmp_path: Path):
                    dry_run=True)
     assert not (paths.state / "pending_delete_ooo_tlt.csv").exists()
     assert result.diffs["ooo_tlt"].deleted == 1
+
+
+def test_validate_rejections_reach_source_statistics(tmp_path: Path):
+    """Источник, у которого всё отбито на проверке, не должен рапортовать «отсеяно 0»."""
+    paths = _paths(tmp_path)
+    # В справочнике ОКЕИ только ШТ, поэтому проверка отклонит каждую строку.
+    source = dataclasses.replace(
+        _source(tmp_path, [["A-1", "Товар", 122], ["A-2", "Второй", 244]]),
+        unit_default="ЯЩИК",
+    )
+    result = build(paths, {"s": source}, _company())
+
+    stat = result.stats[0]
+    assert stat.read == 2
+    assert stat.rejected == 2
+    assert stat.accepted == 0
+    assert "Единица измерения" in " ".join(stat.reasons)
+
+
+def test_validate_rejection_counted_once_for_two_companies(tmp_path: Path):
+    paths = _paths(tmp_path)
+    source = dataclasses.replace(
+        _source(tmp_path, [["A-1", "Товар", 122]]),
+        companies=("ooo_tlt", "ip"), unit_default="ЯЩИК",
+    )
+    companies = _company()
+    companies["ip"] = CompanyConfig(code="ip", title="ИП", vat_mode="none")
+    result = build(paths, {"s": source}, companies)
+    assert result.stats[0].rejected == 1
+
+
+def test_source_statistics_carry_previous_snapshot_size(tmp_path: Path):
+    paths = _paths(tmp_path)
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122], ["A-2", "Второй", 244]])},
+          _company())
+    result = build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+
+    stat = result.stats[0]
+    assert stat.previous_count == 2
+    assert stat.deleted == 1
