@@ -39,6 +39,25 @@ def test_report_contains_per_source_numbers(tmp_path: Path):
     assert out.read_text(encoding="utf-8") == text
 
 
+def test_report_flags_source_that_read_nothing(tmp_path: Path):
+    text = write_report_md(
+        tmp_path / "report.md",
+        [SourceStats("opt", "ОПТ", "on", "", 0, 0, 0, {"не найден файл": 1})],
+        {},
+    )
+    assert "ВНИМАНИЕ" in text
+    assert "ни одной строки" in text
+
+
+def test_report_stays_quiet_about_frozen_source(tmp_path: Path):
+    text = write_report_md(
+        tmp_path / "report.md",
+        [SourceStats("brinex", "Бринэкс", "frozen", "", 0, 0, 0)],
+        {},
+    )
+    assert "ВНИМАНИЕ" not in text
+
+
 def test_report_flags_source_that_lost_most_positions(tmp_path: Path):
     text = write_report_md(
         tmp_path / "report.md",
