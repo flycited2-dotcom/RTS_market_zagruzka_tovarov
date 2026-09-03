@@ -32,15 +32,37 @@ brinex_wheels:
     price: "Цена"
     stock: "Остаток общий"
     brand: "Производитель"
-    diameter: "Диаметр"
+    model: "Модель"
+    rim: "Диаметр"
+    width: "Ширина диска"
+    pcd: "PCD"
+    et: "ЕТ"
+    cb: "СВ"
+    material: "Материал"
+    color: "Описание цвета"
+    holes: "Количество отверстий крепежа"
+    hole_type: "Тип отверстия"
+    weight: "Вес"
+    mfr_code: "Код производителя"
   min_stock: 1
-  okpd2_default: "29.32.30.220"   # Колеса, ступицы и их детали
   unit_default: "ШТ"
+  okpd2_default: "29.32.30.220"   # Колеса, ступицы и их детали
   description_template: |
     {name}
     Производитель: {brand}
-    Диаметр: {diameter}
-    Артикул производителя: {article}
+    Модель: {model}
+    Посадочный диаметр: R{rim}
+    Ширина обода: {width}
+    Сверловка PCD: {pcd}
+    Отверстий крепежа: {holes}
+    Тип отверстия: {hole_type}
+    Вылет ET: {et}
+    Ступичное отверстие DIA: {cb}
+    Материал: {material}
+    Цвет: {color}
+    Вес: {weight} кг
+    Артикул производителя: {mfr_code}
+
 
 brinex_tires:
   title: "Бринэкс, автошины"
@@ -57,15 +79,33 @@ brinex_tires:
     price: "Цена"
     stock: "Остаток общий"
     brand: "Производитель"
+    model: "Модель"
     width: "Ширина"
+    height: "Высота"
+    rim: "Диаметр"
+    season: "Сезонность"
+    load_index: "Индекс нагрузки/Индекс нагрузки сдвоенной шины"
+    speed_index: "Индекс скорости"
+    runflat: "Run Flat"
+    studs: "Шипы"
+    weight: "Вес"
+    mfr_code: "Код производителя"
   min_stock: 1
-  okpd2_default: "22.11.11.000"   # Шины и покрышки пневматические для легковых автомобилей новые
   unit_default: "ШТ"
+  okpd2_default: "22.11.11.000"   # Шины и покрышки пневматические для легковых автомобилей новые
   description_template: |
     {name}
     Производитель: {brand}
-    Ширина профиля: {width}
-    Артикул производителя: {article}
+    Модель: {model}
+    Типоразмер: {width}/{height} R{rim}
+    Сезонность: {season}
+    Шипы: {studs}
+    Индекс нагрузки: {load_index}
+    Индекс скорости: {speed_index}
+    Run Flat: {runflat}
+    Вес: {weight} кг
+    Артикул производителя: {mfr_code}
+
 
 gurinenko_bakaleya:
   title: "Гуриненко, бакалея"

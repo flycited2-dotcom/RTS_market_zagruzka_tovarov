@@ -1,6 +1,8 @@
 from pathlib import Path
 import textwrap
-from rtsprice.config import load_sources, load_companies, load_stoplist
+from rtsprice.config import (
+    load_companies, load_photo_server, load_sources, load_stoplist,
+)
 
 
 def test_load_sources_applies_defaults(tmp_path: Path):
@@ -84,3 +86,34 @@ def test_load_sources_rejects_duplicate_prefix(tmp_path: Path):
         assert "brinex_tires" in str(exc)
     else:
         raise AssertionError("ожидалась ValueError о повторе префикса")
+
+
+def test_photo_server_absent_is_not_an_error(tmp_path: Path):
+    assert load_photo_server(tmp_path / "photos.yml") is None
+
+
+def test_photo_server_loads_and_expands_home(tmp_path: Path):
+    p = tmp_path / "photos.yml"
+    p.write_text(textwrap.dedent("""
+        host: 213.109.202.45
+        user: root
+        key_path: "~/.ssh/id_photos"
+        remote_root: /var/www/photos
+        base_url: "https://example.ru/photos"
+    """), encoding="utf-8")
+    s = load_photo_server(p)
+    assert s.host == "213.109.202.45"
+    assert s.port == 22
+    assert "~" not in s.key_path
+    assert s.key_path.endswith("id_photos")
+
+
+def test_photo_server_reports_missing_fields(tmp_path: Path):
+    p = tmp_path / "photos.yml"
+    p.write_text("host: 1.2.3.4\nuser: root\n", encoding="utf-8")
+    try:
+        load_photo_server(p)
+    except ValueError as exc:
+        assert "key_path" in str(exc) and "base_url" in str(exc)
+    else:
+        raise AssertionError("ожидалась ValueError")

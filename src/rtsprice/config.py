@@ -44,6 +44,23 @@ class SourceConfig:
 
 
 @dataclass(frozen=True)
+class PhotoServerConfig:
+    """Куда публиковать фотографии, чтобы площадка смогла их скачать.
+
+    Живёт в отдельном файле `photos.yml`, который не попадает в git: там
+    адрес сервера и путь к ключу. Пароли не поддерживаются намеренно —
+    ключ не утекает в историю команд и не хранится в открытом виде.
+    """
+
+    host: str
+    user: str
+    key_path: str
+    remote_root: str
+    base_url: str
+    port: int = 22
+
+
+@dataclass(frozen=True)
 class CompanyConfig:
     code: str
     title: str
@@ -147,6 +164,30 @@ def load_companies(directory: Path) -> dict[str, CompanyConfig]:
             photo_base_url=str(body.get("photo_base_url", "")),
         )
     return result
+
+
+def load_photo_server(path: Path) -> PhotoServerConfig | None:
+    """Прочитать настройки публикации фотографий, если они заданы.
+
+    Отсутствие файла — не ошибка: у продавца может не быть ни фотографий,
+    ни сервера, и сборка тогда просто оставляет колонки изображений пустыми.
+    """
+    p = Path(path)
+    if not p.exists():
+        return None
+    body = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    missing = [k for k in ("host", "user", "key_path", "remote_root", "base_url")
+               if not body.get(k)]
+    if missing:
+        raise ValueError(f"{p.name}: не заданы обязательные поля: {', '.join(missing)}")
+    return PhotoServerConfig(
+        host=str(body["host"]),
+        user=str(body["user"]),
+        key_path=str(Path(str(body["key_path"])).expanduser()),
+        remote_root=str(body["remote_root"]),
+        base_url=str(body["base_url"]),
+        port=int(body.get("port", 22)),
+    )
 
 
 def load_stoplist(path: Path) -> set[tuple[str, str]]:

@@ -6,7 +6,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .config import VALID_STATES, load_companies, load_sources, load_stoplist
+from .config import (
+    VALID_STATES, load_companies, load_photo_server, load_sources, load_stoplist,
+)
 from .pipeline import Paths, build, clear_pending
 from .readers import find_source_file
 
@@ -67,14 +69,40 @@ def format_status(root: Path) -> str:
     )
 
 
+def _photo_publisher(root: Path, dry_run: bool):
+    """Издатель фотографий, если сервер настроен и сборка не пробная.
+
+    При `check` соединение не открывается: команда обязана быть без
+    побочных действий, а вход по SSH — это уже действие.
+    """
+    if dry_run:
+        return None
+    server = load_photo_server(root / "photos.yml")
+    if server is None:
+        return None
+    from .photos import SftpPublisher
+
+    return SftpPublisher(
+        host=server.host, user=server.user, key_path=server.key_path,
+        remote_root=server.remote_root, base_url=server.base_url, port=server.port,
+    )
+
+
 def _run_build(root: Path, args, dry_run: bool) -> int:
     sources = load_sources(root / "sources.yml")
     companies = load_companies(root / "companies")
-    result = build(
-        Paths(root=root), sources, companies,
-        only=args.only, skip=args.skip, company_codes=args.company,
-        stoplist=load_stoplist(root / "stoplist.csv"), dry_run=dry_run,
-    )
+    publisher = _photo_publisher(root, dry_run)
+    try:
+        result = build(
+            Paths(root=root), sources, companies,
+            only=args.only, skip=args.skip, company_codes=args.company,
+            stoplist=load_stoplist(root / "stoplist.csv"),
+            photo_publisher=publisher, dry_run=dry_run,
+        )
+    finally:
+        close = getattr(publisher, "close", None)
+        if close:
+            close()
     for s in result.stats:
         print(f"{s.title}: Прочитано {s.read}, отсеяно {s.rejected}, принято {s.accepted}")
     for company, diff in result.diffs.items():
