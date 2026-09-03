@@ -80,6 +80,16 @@ def test_frozen_source_is_not_deleted(tmp_path: Path):
     assert result.diffs["ooo_tlt"].deleted == 0
 
 
+def test_frozen_source_can_still_be_deleted_after_being_switched_off(tmp_path: Path):
+    paths = _paths(tmp_path)
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]], state="frozen")},
+          _company())
+    result = build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]], state="off")},
+                   _company())
+    assert result.diffs["ooo_tlt"].deleted == 1
+
+
 def test_off_source_positions_are_deleted(tmp_path: Path):
     paths = _paths(tmp_path)
     build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())

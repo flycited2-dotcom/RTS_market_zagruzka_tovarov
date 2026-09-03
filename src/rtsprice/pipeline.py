@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from .config import CompanyConfig, SourceConfig
-from .identity import IdMap
+from .identity import IdMap, prefix_of
 from .normalize import Item, Rejection, normalize_source
 from .photos import PhotoResolver
 from .readers import find_source_file, read_source
@@ -164,7 +164,15 @@ def build(
         result.files[company_code] = write_price_file(
             rows + removals, paths.output / f"{company_code}.xlsx"
         )
-        save_snapshot(snapshot_path, rows)
+        # Снимок описывает то, что сейчас на площадке, а не то, что записано
+        # в этот раз. Позиции замороженного источника остаются на витрине и
+        # потому переносятся в новый снимок: без переноса они выпали бы из
+        # записи, и выключив источник после заморозки, снять их стало бы нечем.
+        carried = [
+            row for rts_id, row in sorted(previous.items())
+            if prefix_of(rts_id) in frozen_prefixes
+        ]
+        save_snapshot(snapshot_path, rows + carried)
 
     if not dry_run:
         idmap.save()
