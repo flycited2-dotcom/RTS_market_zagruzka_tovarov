@@ -4,9 +4,12 @@ from pathlib import Path
 import openpyxl
 import pytest
 
+import dataclasses
+
 from rtsprice.config import CompanyConfig, SourceConfig
 from rtsprice.pipeline import Paths, build
 from rtsprice.render import C_DELETE, C_ID, C_NAME, C_PRICE
+from rtsprice.state import load_snapshot
 
 
 def _paths(tmp_path: Path) -> Paths:
@@ -106,6 +109,34 @@ def test_only_filter_limits_sources(tmp_path: Path):
     }
     result = build(paths, sources, _company(), only=["s"])
     assert [s.code for s in result.stats] == ["s"]
+
+
+def test_only_filter_does_not_delete_other_sources(tmp_path: Path):
+    paths = _paths(tmp_path)
+    sources = {
+        "s": _source(tmp_path, [["A-1", "Товар", 122]], code="s", prefix=7),
+        "t": _source(tmp_path, [["B-1", "Другой", 244]], code="t", prefix=8),
+    }
+    build(paths, sources, _company())
+    result = build(paths, sources, _company(), only=["s"])
+
+    assert result.diffs["ooo_tlt"].deleted == 0
+    assert set(load_snapshot(paths.state / "last_ooo_tlt.csv")) == {70_000_001, 80_000_001}
+
+
+def test_broken_columns_do_not_abort_build_or_delete(tmp_path: Path):
+    paths = _paths(tmp_path)
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+
+    broken = dataclasses.replace(
+        _source(tmp_path, [["A-1", "Товар", 122]]),
+        columns={"article": "Артикул", "name": "Наименование", "price": "Нет такой колонки"},
+    )
+    result = build(paths, {"s": broken}, _company())
+
+    assert result.stats[0].read == 0
+    assert "Нет такой колонки" in " ".join(result.stats[0].reasons)
+    assert result.diffs["ooo_tlt"].deleted == 0
 
 
 def test_dry_run_writes_nothing(tmp_path: Path):

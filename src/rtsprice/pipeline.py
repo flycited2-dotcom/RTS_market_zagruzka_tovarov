@@ -82,7 +82,16 @@ def collect_items(
                                      {str(exc): 1}))
             continue
 
-        rows = read_source(cfg, path)
+        try:
+            rows = read_source(cfg, path)
+        except KeyError as exc:
+            # Поставщик переименовал колонку. Источник выпадает из выгрузки с
+            # внятной причиной в отчёте, но сборка остальных продолжается — и,
+            # что важнее, его позиции не попадают под снятие с продажи.
+            stats.append(SourceStats(cfg.code, cfg.title, cfg.state, path.name, 0, 0, 0,
+                                     {str(exc.args[0]): 1}))
+            continue
+
         items, rejected = normalize_source(cfg, rows, idmap, stoplist, units, aliases)
         by_source[cfg.code] = items
         rejections.extend(rejected)
@@ -111,13 +120,17 @@ def build(
     units = load_units(paths.reference / "okei.csv")
 
     by_source, stats, rejections = collect_items(paths, active, idmap, stoplist or set())
+    if not dry_run:
+        # Идентификаторы выданы на этом шаге и уже могут уйти в записанный файл.
+        # Карта только пополняется, поэтому сохраняем сразу: если сборка упадёт
+        # дальше, повторный запуск не выдаст те же номера другим артикулам.
+        idmap.save()
     result = BuildResult(stats=stats, rejections=rejections)
 
     resolver = (
         PhotoResolver(paths.photos, photo_publisher, paths.state / "photos.json")
         if photo_publisher else None
     )
-    frozen_prefixes = {c.prefix for c in active if c.state == "frozen"}
 
     for company_code, company in companies.items():
         if company_codes and company_code not in company_codes:
@@ -144,6 +157,20 @@ def build(
         previous = load_snapshot(snapshot_path)
         current_ids = {int(r[C_ID]) for r in rows}
 
+        # Снимать с продажи можно только позиции тех источников, которые в этом
+        # запуске действительно пересобирались: прочитанных без ошибок и явно
+        # выключенных. Всё прочее — замороженное, отсеянное ключами --only и
+        # --skip, сломанное сменой колонок, убранное из конфига — отсутствует в
+        # текущей выгрузке не потому, что товар кончился, а потому что его не
+        # читали. Без этой границы «build --only promet» пометил бы к удалению
+        # весь товар остальных поставщиков.
+        refreshed = {
+            cfg.prefix for cfg in active
+            if company_code in cfg.companies
+            and (cfg.code in by_source or cfg.state == "off")
+        }
+        untouched = {prefix_of(rts_id) for rts_id in previous} - refreshed
+
         diff = DiffStats(deleted=0)
         for row in rows:
             rts_id = int(row[C_ID])
@@ -154,7 +181,7 @@ def build(
             else:
                 diff.unchanged += 1
 
-        removals = deletion_rows(previous, current_ids, frozen_prefixes)
+        removals = deletion_rows(previous, current_ids, untouched)
         diff.deleted = len(removals)
         result.diffs[company_code] = diff
 
@@ -164,18 +191,17 @@ def build(
         result.files[company_code] = write_price_file(
             rows + removals, paths.output / f"{company_code}.xlsx"
         )
-        # Снимок описывает то, что сейчас на площадке, а не то, что записано
-        # в этот раз. Позиции замороженного источника остаются на витрине и
-        # потому переносятся в новый снимок: без переноса они выпали бы из
-        # записи, и выключив источник после заморозки, снять их стало бы нечем.
+        # Снимок описывает то, что сейчас стоит на площадке, а не то, что
+        # записано в этот раз. Позиции непересобиравшихся источников остаются
+        # на витрине и переносятся в новый снимок: иначе они выпали бы из
+        # записи, и снять их потом стало бы нечем.
         carried = [
             row for rts_id, row in sorted(previous.items())
-            if prefix_of(rts_id) in frozen_prefixes
+            if prefix_of(rts_id) in untouched
         ]
         save_snapshot(snapshot_path, rows + carried)
 
     if not dry_run:
-        idmap.save()
         if resolver:
             resolver.save()
         write_errors_xlsx(paths.output / "errors.xlsx", result.rejections, result.issues)
