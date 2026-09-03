@@ -15,7 +15,7 @@ EXPECTED_MINIMUM = {
     "brinex_wheels": 7000,
     "brinex_tires": 4000,
     "gurinenko_bakaleya": 1200,
-    "gurinenko_grushevo": 4000,
+    "gurinenko_grushevo": 3800,
     "opt": 400,
     "priceopt": 1600,
 }

@@ -118,26 +118,37 @@ def read_source(cfg: SourceConfig, path: Path) -> list[RawRow]:
             )
             for c in range(width)
         ]
-        # Last column with a given normalized header wins (e.g., second "Цена клиента" for Гуриненко Грушево warehouses).
-        index = {_norm(h): c for c, h in enumerate(headers) if h}
-        mapping: dict[str, int] = {}
+        # Один заголовок может стоять над несколькими колонками: у одного
+        # поставщика «Цена клиента» повторяется для двух складов, и позиция
+        # заполнена ровно в одной из них. Поэтому заголовок отображается на
+        # список колонок, а значением берётся первое непустое.
+        index: dict[str, list[int]] = {}
+        for c, h in enumerate(headers):
+            if h:
+                index.setdefault(_norm(h), []).append(c)
+        mapping: dict[str, list[int]] = {}
         for logical, title in cfg.columns.items():
-            col = index.get(_norm(title))
-            if col is None:
+            cols = index.get(_norm(title))
+            if not cols:
                 raise KeyError(
                     f"источник {cfg.code}, лист {sheet_name!r}: не найдена колонка {title!r}; "
                     f"доступны: {[h for h in headers if h][:20]}"
                 )
-            mapping[logical] = col
+            mapping[logical] = cols
 
         for number, row in enumerate(grid, start=1):
             if number < cfg.data_starts_at:
                 continue
             values: dict[str, object] = {}
-            for logical, col in mapping.items():
-                value = row[col] if col < len(row) else None
-                if isinstance(value, str) and not value.strip():
-                    value = None
+            for logical, cols in mapping.items():
+                value = None
+                for col in cols:
+                    candidate = row[col] if col < len(row) else None
+                    if isinstance(candidate, str) and not candidate.strip():
+                        candidate = None
+                    if candidate is not None:
+                        value = candidate
+                        break
                 values[logical] = value
             if _is_product(cfg.row_is_product, values):
                 rows.append(RawRow(cfg.code, sheet_name, number, values))

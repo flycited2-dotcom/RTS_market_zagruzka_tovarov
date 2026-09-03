@@ -75,6 +75,19 @@ def test_read_source_barcode13_rule(tmp_path: Path):
     assert [r.values["name"] for r in rows] == ["Сок"]
 
 
+def test_repeated_header_takes_first_non_empty_value(tmp_path: Path):
+    p = _book(tmp_path / "p.xlsx", [
+        ["Штрихкод", "Номенклатура", "Цена клиента", "Цена клиента"],
+        ["4600000000017", "Сок", None, 99],
+        ["4600000000024", "Вода", 55, None],
+    ])
+    cfg = _cfg(header_rows=(1,), data_starts_at=2, row_is_product="barcode13",
+               columns={"barcode": "Штрихкод", "name": "Номенклатура",
+                        "price": "Цена клиента"})
+    rows = read_source(cfg, p)
+    assert [(r.values["name"], r.values["price"]) for r in rows] == [("Сок", 99), ("Вода", 55)]
+
+
 def test_read_source_missing_column_raises(tmp_path: Path):
     p = _book(tmp_path / "p.xlsx", [["Артикул", "Наименование"], ["A-1", "Товар"]])
     with pytest.raises(KeyError, match="Цена"):
