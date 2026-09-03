@@ -2632,12 +2632,13 @@ def test_resolver_skips_unchanged_files_on_second_run(tmp_path: Path):
     publisher = LocalPublisher(tmp_path / "published", "https://example.ru/p")
     manifest = tmp_path / "photos.json"
 
-    PhotoResolver(tmp_path / "photos", publisher, manifest).urls_for(_item())
+    first = PhotoResolver(tmp_path / "photos", publisher, manifest)
+    first.urls_for(_item())
+    first.save()
     assert publisher.uploads == 1
 
     second = PhotoResolver(tmp_path / "photos", publisher, manifest)
     second.urls_for(_item())
-    second.save()
     assert publisher.uploads == 1
 
 
@@ -2809,6 +2810,12 @@ class PhotoResolver:
         return urls
 
     def save(self) -> None:
+        """Записать манифест один раз за сборку.
+
+        Вызывается оркестровкой в конце, а не из urls_for: манифест пишется
+        целиком, и сохранение на каждую новую фотографию превратило бы одну
+        запись в десятки тысяч.
+        """
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
         self.manifest_path.write_text(
             json.dumps(self._manifest, ensure_ascii=False, indent=1), encoding="utf-8"
