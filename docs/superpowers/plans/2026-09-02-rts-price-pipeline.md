@@ -3198,6 +3198,16 @@ def test_frozen_source_is_not_deleted(tmp_path: Path):
     assert result.diffs["ooo_tlt"].deleted == 0
 
 
+def test_frozen_source_can_still_be_deleted_after_being_switched_off(tmp_path: Path):
+    paths = _paths(tmp_path)
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]], state="frozen")},
+          _company())
+    result = build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]], state="off")},
+                   _company())
+    assert result.diffs["ooo_tlt"].deleted == 1
+
+
 def test_off_source_positions_are_deleted(tmp_path: Path):
     paths = _paths(tmp_path)
     build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
@@ -3263,7 +3273,7 @@ from datetime import date
 from pathlib import Path
 
 from .config import CompanyConfig, SourceConfig
-from .identity import IdMap
+from .identity import IdMap, prefix_of
 from .normalize import Item, Rejection, normalize_source
 from .photos import PhotoResolver
 from .readers import find_source_file, read_source
@@ -3419,7 +3429,15 @@ def build(
         result.files[company_code] = write_price_file(
             rows + removals, paths.output / f"{company_code}.xlsx"
         )
-        save_snapshot(snapshot_path, rows)
+        # Снимок описывает то, что сейчас на площадке, а не то, что записано
+        # в этот раз. Позиции замороженного источника остаются на витрине и
+        # потому переносятся в новый снимок: без переноса они выпали бы из
+        # записи, и выключив источник после заморозки, снять их стало бы нечем.
+        carried = [
+            row for rts_id, row in sorted(previous.items())
+            if prefix_of(rts_id) in frozen_prefixes
+        ]
+        save_snapshot(snapshot_path, rows + carried)
 
     if not dry_run:
         idmap.save()
@@ -3433,7 +3451,7 @@ def build(
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_pipeline.py -v`
-Ожидается: PASS, 8 тестов
+Ожидается: PASS, 9 тестов
 
 - [ ] **Шаг 5: Прогнать весь набор тестов**
 
