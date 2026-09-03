@@ -1,0 +1,103 @@
+"""Команды управления сборкой прайс-листов."""
+from __future__ import annotations
+
+import argparse
+import re
+from datetime import datetime
+from pathlib import Path
+
+from .config import VALID_STATES, load_companies, load_sources, load_stoplist
+from .pipeline import Paths, build
+from .readers import find_source_file
+
+
+def set_state(path: Path, code: str, state: str) -> None:
+    """Поменять состояние источника, сохранив форматирование файла."""
+    if state not in VALID_STATES:
+        raise ValueError(f"недопустимое состояние {state!r}, ожидается одно из {VALID_STATES}")
+    text = Path(path).read_text(encoding="utf-8")
+    if not re.search(rf"^{re.escape(code)}:\s*$", text, re.M):
+        raise KeyError(f"источник {code!r} не найден в {path}")
+
+    lines, inside, replaced = text.splitlines(), False, False
+    for i, line in enumerate(lines):
+        if re.fullmatch(rf"{re.escape(code)}:\s*", line):
+            inside = True
+            continue
+        if inside and line and not line[0].isspace():
+            break
+        if inside and re.match(r"\s+state:", line):
+            indent = line[: len(line) - len(line.lstrip())]
+            lines[i] = f"{indent}state: {state}"
+            replaced = True
+            break
+    if not replaced:
+        index = next(i for i, l in enumerate(lines) if re.fullmatch(rf"{re.escape(code)}:\s*", l))
+        lines.insert(index + 1, f"  state: {state}")
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def format_status(root: Path) -> str:
+    sources = load_sources(root / "sources.yml")
+    rows = [("Источник", "Состояние", "Компании", "Файл", "Дата")]
+    for cfg in sorted(sources.values(), key=lambda c: c.code):
+        try:
+            path = find_source_file(cfg.file_glob)
+            name = path.name
+            stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime("%d.%m.%Y")
+        except FileNotFoundError:
+            name, stamp = "— файл не найден —", "—"
+        rows.append((cfg.title, cfg.state, ", ".join(cfg.companies), name, stamp))
+
+    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
+    return "\n".join(
+        "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)) for row in rows
+    )
+
+
+def _run_build(root: Path, args, dry_run: bool) -> int:
+    sources = load_sources(root / "sources.yml")
+    companies = load_companies(root / "companies")
+    result = build(
+        Paths(root=root), sources, companies,
+        only=args.only, skip=args.skip, company_codes=args.company,
+        stoplist=load_stoplist(root / "stoplist.csv"), dry_run=dry_run,
+    )
+    for s in result.stats:
+        print(f"{s.title}: Прочитано {s.read}, отсеяно {s.rejected}, принято {s.accepted}")
+    for company, diff in result.diffs.items():
+        print(f"{company}: новых {diff.new}, изменилась цена {diff.changed_price}, "
+              f"снимается {diff.deleted}")
+    for company, files in result.files.items():
+        for path in files:
+            print(f"записан {path}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="rtsprice")
+    parser.add_argument("--root", default=".", help="корень проекта")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("status", help="состояние источников")
+    for name, help_text in (("build", "собрать файлы"), ("check", "проверить без записи")):
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument("--only", nargs="*", help="только эти источники")
+        p.add_argument("--skip", nargs="*", help="пропустить эти источники")
+        p.add_argument("--company", nargs="*", help="только эти юридические лица")
+    for name in ("on", "off", "freeze"):
+        p = sub.add_parser(name, help=f"перевести источник в состояние {name}")
+        p.add_argument("source")
+
+    args = parser.parse_args(argv)
+    root = Path(args.root).resolve()
+
+    if args.command == "status":
+        print(format_status(root))
+        return 0
+    if args.command in ("on", "off", "freeze"):
+        state = "frozen" if args.command == "freeze" else args.command
+        set_state(root / "sources.yml", args.source, state)
+        print(f"{args.source}: состояние изменено на {state}")
+        return 0
+    return _run_build(root, args, dry_run=args.command == "check")
