@@ -2423,6 +2423,24 @@ def test_splits_into_parts_over_limit(tmp_path: Path, monkeypatch):
     assert openpyxl.load_workbook(written[2]).active.max_row == 3
 
 
+def test_order_numbers_run_continuously_across_parts(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("rtsprice.writer.MAX_ROWS_PER_FILE", 2)
+    written = write_price_file([_row(i) for i in range(5)], tmp_path / "ooo.xlsx")
+    numbers: list[object] = []
+    for path in written:
+        ws = openpyxl.load_workbook(path).active
+        numbers += [ws.cell(r, 1).value for r in range(3, ws.max_row + 1)]
+    assert numbers == [1, 2, 3, 4, 5]
+
+
+def test_exact_limit_stays_one_unsplit_file(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("rtsprice.writer.MAX_ROWS_PER_FILE", 3)
+    out = tmp_path / "ooo.xlsx"
+    written = write_price_file([_row(i) for i in range(3)], out)
+    assert written == [out]
+    assert openpyxl.load_workbook(out).active.max_row == 5
+
+
 def test_empty_rows_still_writes_header(tmp_path: Path):
     out = tmp_path / "ooo.xlsx"
     written = write_price_file([], out)
@@ -2503,7 +2521,7 @@ def write_price_file(rows: list[list[object]], out_path: Path) -> list[Path]:
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_writer.py -v`
-Ожидается: PASS, 5 тестов
+Ожидается: PASS, 7 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
