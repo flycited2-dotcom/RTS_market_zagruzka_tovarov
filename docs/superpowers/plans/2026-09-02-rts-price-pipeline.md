@@ -3105,7 +3105,9 @@ git commit -m "feat: отчёт о сборке и файл с ошибками"
 - Потребляет: всё из задач 1–13
 - Производит: `Paths` (набор путей проекта), `BuildResult`,
   `build(paths, sources, companies, only=None, skip=None, company_codes=None, dry_run=False)
-  -> BuildResult`, `collect_items(paths, sources, only, skip) -> tuple[dict, list, list]`
+  -> BuildResult`,
+  `collect_items(paths, sources, idmap, stoplist)
+  -> tuple[dict[str, list[Item]], list[SourceStats], list[Rejection]]`
 
 Порядок операций внутри одной компании: собрать позиции включённых источников, отрендерить,
 проверить, посчитать удаления по снимку, записать файл, сохранить снимок. При `dry_run` файлы и
