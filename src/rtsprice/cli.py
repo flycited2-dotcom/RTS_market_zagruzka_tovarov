@@ -33,7 +33,19 @@ def set_state(path: Path, code: str, state: str) -> None:
             break
     if not replaced:
         index = next(i for i, l in enumerate(lines) if re.fullmatch(rf"{re.escape(code)}:\s*", l))
-        lines.insert(index + 1, f"  state: {state}")
+        # Отступ берётся у соседнего ключа того же блока: файл может быть
+        # размечен и двумя пробелами, и четырьмя, а вставка с чужим отступом
+        # молча ломает YAML — команда отрапортует успех, а конфиг перестанет
+        # читаться при следующем запуске.
+        indent = "  "
+        for line in lines[index + 1:]:
+            if not line.strip():
+                continue
+            if not line[0].isspace():
+                break
+            indent = line[: len(line) - len(line.lstrip())]
+            break
+        lines.insert(index + 1, f"{indent}state: {state}")
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -42,7 +54,7 @@ def format_status(root: Path) -> str:
     rows = [("Источник", "Состояние", "Компании", "Файл", "Дата")]
     for cfg in sorted(sources.values(), key=lambda c: c.code):
         try:
-            path = find_source_file(cfg.file_glob)
+            path = find_source_file(str(root / cfg.file_glob))
             name = path.name
             stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime("%d.%m.%Y")
         except FileNotFoundError:

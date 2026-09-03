@@ -76,7 +76,7 @@ def collect_items(
             stats.append(SourceStats(cfg.code, cfg.title, cfg.state, "", 0, 0, 0))
             continue
         try:
-            path = find_source_file(cfg.file_glob)
+            path = find_source_file(str(paths.root / cfg.file_glob))
         except FileNotFoundError as exc:
             stats.append(SourceStats(cfg.code, cfg.title, cfg.state, "", 0, 0, 0,
                                      {str(exc): 1}))

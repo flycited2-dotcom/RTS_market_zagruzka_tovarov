@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+import openpyxl
 from rtsprice.cli import main, set_state
 from rtsprice.config import load_sources
 
@@ -57,6 +58,31 @@ def test_freeze_and_on_round_trip(project: Path):
     assert load_sources(project / "sources.yml")["promet"].state == "frozen"
     main(["--root", str(project), "on", "promet"])
     assert load_sources(project / "sources.yml")["promet"].state == "on"
+
+
+def test_set_state_matches_block_indentation(tmp_path: Path):
+    p = tmp_path / "sources.yml"
+    p.write_text(
+        'promet:\n'
+        '    title: "Промет"\n'
+        '    prefix: 10\n'
+        '    file: "input/promet/*.xlsx"\n',
+        encoding="utf-8",
+    )
+    set_state(p, "promet", "off")
+    assert "    state: off" in p.read_text(encoding="utf-8")
+    assert load_sources(p)["promet"].state == "off"
+
+
+def test_status_resolves_source_glob_against_root(project: Path, capsys):
+    directory = project / "input" / "promet"
+    directory.mkdir(parents=True)
+    wb = openpyxl.Workbook()
+    wb.active.append(["Артикул", "Наименование", "Цена"])
+    wb.save(directory / "price.xlsx")
+
+    assert main(["--root", str(project), "status"]) == 0
+    assert "price.xlsx" in capsys.readouterr().out
 
 
 def test_set_state_rejects_unknown_source(project: Path):
