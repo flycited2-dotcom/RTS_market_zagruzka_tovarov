@@ -19,7 +19,19 @@ UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def safe_name(value: str) -> str:
-    return UNSAFE.sub("_", str(value)).strip("_") or "item"
+    """Превратить строку в безопасный сегмент пути, не теряя различий.
+
+    Кириллица и прочие небезопасные символы схлопываются в подчёркивание,
+    поэтому к результату добавляется короткий хэш исходной строки. Без него
+    «деталь-55» и «штука-55» дали бы одно и то же имя файла, и фотография
+    одного товара затёрла бы фотографию другого.
+    """
+    text = str(value)
+    cleaned = UNSAFE.sub("_", text).strip("_")
+    if cleaned == text and cleaned:
+        return cleaned
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+    return f"{cleaned}_{digest}" if cleaned else digest
 
 
 def find_photos(root: Path, source: str, article: str, limit: int = 5) -> list[Path]:
@@ -126,16 +138,18 @@ class PhotoResolver:
 
     def urls_for(self, item: Item) -> list[str]:
         urls: list[str] = []
-        for index, path in enumerate(
-            find_photos(self.root, item.source, item.article, self.limit), start=1
-        ):
+        for path in find_photos(self.root, item.source, item.article, self.limit):
             raw = path.read_bytes()
             digest = hashlib.sha256(raw).hexdigest()
             known = self._manifest.get(digest)
             if known:
                 urls.append(known)
                 continue
-            remote = f"{safe_name(item.source)}/{safe_name(item.article)}_{index}.jpg"
+            # Номер берётся из имени файла, а не из позиции в списке: если
+            # удалить средний снимок, следующий занял бы чужой адрес и затёр
+            # бы по нему другое содержимое, оставив ссылку в строке прежней.
+            number = SUFFIX_PATTERN.search(path.stem).group(1)
+            remote = f"{safe_name(item.source)}/{safe_name(item.article)}_{number}.jpg"
             url = self.publisher.publish(remote, normalize_image(raw))
             self._manifest[digest] = url
             urls.append(url)

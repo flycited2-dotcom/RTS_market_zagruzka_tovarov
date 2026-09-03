@@ -4,7 +4,9 @@ from pathlib import Path
 from PIL import Image
 
 from rtsprice.normalize import Item
-from rtsprice.photos import LocalPublisher, PhotoResolver, find_photos, normalize_image
+from rtsprice.photos import (
+    LocalPublisher, PhotoResolver, find_photos, normalize_image, safe_name,
+)
 
 
 def _png(size: tuple[int, int] = (40, 30)) -> bytes:
@@ -92,6 +94,26 @@ def test_resolver_sanitizes_article_in_remote_name(tmp_path: Path):
     publisher = LocalPublisher(tmp_path / "published", "https://example.ru/p")
     resolver = PhotoResolver(tmp_path / "photos", publisher, tmp_path / "photos.json")
     assert resolver.urls_for(_item("S5Z706")) == ["https://example.ru/p/promet/S5Z706_1.jpg"]
+
+
+def test_safe_name_keeps_distinct_cyrillic_articles_distinct():
+    assert safe_name("деталь-55") != safe_name("штука-55")
+    assert safe_name("Ту-00000406") != safe_name("Гу-00000406")
+    assert safe_name("S5Z706") == "S5Z706"
+
+
+def test_remote_name_uses_file_number_not_position(tmp_path: Path):
+    photos = tmp_path / "photos" / "promet"
+    photos.mkdir(parents=True)
+    (photos / "A-1_1.jpg").write_bytes(_png())
+    (photos / "A-1_3.jpg").write_bytes(_png((60, 60)))
+
+    publisher = LocalPublisher(tmp_path / "published", "https://example.ru/p")
+    resolver = PhotoResolver(tmp_path / "photos", publisher, tmp_path / "photos.json")
+    assert resolver.urls_for(_item()) == [
+        "https://example.ru/p/promet/A-1_1.jpg",
+        "https://example.ru/p/promet/A-1_3.jpg",
+    ]
 
 
 def test_resolver_returns_empty_without_photos(tmp_path: Path):
