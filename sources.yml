@@ -73,7 +73,7 @@ gurinenko_bakaleya:
   sheets: ["Лист_1"]
   header_rows: [1, 2]
   data_starts_at: 3
-  row_is_product: barcode13
+  row_is_product: price_not_empty
   columns:
     barcode: "Штрихкод"
     name: "Номенклатура"
@@ -91,7 +91,7 @@ gurinenko_grushevo:
   sheets: ["Лист_1"]
   header_rows: [2, 3]
   data_starts_at: 4
-  row_is_product: barcode13
+  row_is_product: price_not_empty
   columns:
     barcode: "Штрихкод"
     name: "Номенклатура"

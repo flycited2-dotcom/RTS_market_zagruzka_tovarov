@@ -23,6 +23,8 @@ class SourceStats:
     rejected: int
     accepted: int
     reasons: dict[str, int] = field(default_factory=dict)
+    # Строки, отброшенные читалкой как нетоварные: разделы, шапки, разметка.
+    skipped: int = 0
     # Сколько позиций источника стояло на площадке по прошлому снимку и
     # сколько снимается сейчас. Знаменатель и числитель предупреждения о том,
     # что поставщик прислал обрезанную выгрузку.
@@ -65,12 +67,14 @@ def write_report_md(
     diffs: dict[str, DiffStats],
 ) -> str:
     lines = [f"# Отчёт о сборке прайс-листов, {date.today():%d.%m.%Y}", "", "## Источники", ""]
-    lines.append("| Источник | Состояние | Файл | Прочитано | Отсеяно | Принято |")
-    lines.append("|---|---|---|---|---|---|")
+    lines.append(
+        "| Источник | Состояние | Файл | Прочитано | Пропущено | Отсеяно | Принято |")
+    lines.append("|---|---|---|---|---|---|---|")
     for s in stats:
         name = s.file_name or "—"
         lines.append(
-            f"| {s.title} | {s.state} | {name} | {s.read} | {s.rejected} | {s.accepted} |"
+            f"| {s.title} | {s.state} | {name} | {s.read} | {s.skipped} | "
+            f"{s.rejected} | {s.accepted} |"
         )
 
     # Источник, из которого не прочитано ни строки, — самый опасный случай:

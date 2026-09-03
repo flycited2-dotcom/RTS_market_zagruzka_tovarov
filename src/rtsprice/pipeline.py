@@ -187,7 +187,7 @@ def collect_items(
             continue
 
         try:
-            rows = read_source(cfg, path)
+            rows, skipped = read_source(cfg, path)
         except KeyError as exc:
             # Поставщик переименовал колонку. Источник выпадает из выгрузки с
             # внятной причиной в отчёте, но сборка остальных продолжается — и,
@@ -203,6 +203,7 @@ def collect_items(
             code=cfg.code, title=cfg.title, state=cfg.state, file_name=path.name,
             read=len(rows), rejected=len(rejected), accepted=len(items),
             reasons=dict(Counter(r.reason for r in rejected)),
+            skipped=skipped,
         ))
     return by_source, stats, rejections
 

@@ -97,3 +97,13 @@ def test_report_quiet_about_ordinary_deletions(tmp_path: Path):
         {},
     )
     assert "ВНИМАНИЕ" not in text
+
+
+def test_report_table_shows_skipped_rows(tmp_path: Path):
+    text = write_report_md(
+        tmp_path / "report.md",
+        [SourceStats("gur", "Гуриненко", "on", "p.xlsx", 1261, 0, 1261, skipped=78)],
+        {},
+    )
+    assert "Пропущено" in text
+    assert "| 78 |" in text

@@ -123,8 +123,16 @@ def _is_product(rule: str, values: dict[str, object]) -> bool:
     return bool(text_value(values.get("article")))
 
 
-def read_source(cfg: SourceConfig, path: Path) -> list[RawRow]:
+def read_source(cfg: SourceConfig, path: Path) -> tuple[list[RawRow], int]:
+    """Товарные строки книги и число строк, отброшенных как нетоварные.
+
+    Второе возвращается вместе с первым, потому что отбрасывание происходит
+    здесь, до появления любого счётчика: без него «прочитано» означало бы не
+    то, что поставщик прислал, а то, что уцелело после правила товарной
+    строки, — и разделы прайса были бы неотличимы от потерянного товара.
+    """
     rows: list[RawRow] = []
+    skipped = 0
     for sheet_name, grid in _grid(Path(path), cfg.sheets):
         if not grid:
             continue
@@ -172,4 +180,7 @@ def read_source(cfg: SourceConfig, path: Path) -> list[RawRow]:
                 values[logical] = value
             if _is_product(cfg.row_is_product, values):
                 rows.append(RawRow(cfg.code, sheet_name, number, values))
-    return rows
+            elif any(v is not None for v in values.values()):
+                # Совсем пустые строки — разметка книги, а не пропущенный товар.
+                skipped += 1
+    return rows, skipped

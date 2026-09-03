@@ -44,7 +44,7 @@ def test_read_source_maps_columns_and_skips_non_products(tmp_path: Path):
         ["РАЗДЕЛ", "Бытовая химия", None],
         ["A-2", "Товар два", 250.5],
     ])
-    rows = read_source(_cfg(), p)
+    rows, _ = read_source(_cfg(), p)
     assert [r.values["article"] for r in rows] == ["A-1", "A-2"]
     assert rows[0].values["name"] == "Товар один"
     assert rows[1].values["price"] == 250.5
@@ -59,7 +59,7 @@ def test_read_source_two_row_header(tmp_path: Path):
     ])
     cfg = _cfg(header_rows=(1, 2), data_starts_at=3,
                columns={"barcode": "Штрихкод", "name": "Номенклатура", "price": "Цена клиента"})
-    rows = read_source(cfg, p)
+    rows, _ = read_source(cfg, p)
     assert len(rows) == 1
     assert rows[0].values["barcode"] == "4600000000017"
     assert rows[0].values["price"] == 99
@@ -73,7 +73,7 @@ def test_read_source_barcode13_rule(tmp_path: Path):
     ])
     cfg = _cfg(header_rows=(1,), data_starts_at=2, row_is_product="barcode13",
                columns={"barcode": "Штрихкод", "name": "Номенклатура", "price": "Цена клиента"})
-    rows = read_source(cfg, p)
+    rows, _ = read_source(cfg, p)
     assert [r.values["name"] for r in rows] == ["Сок"]
 
 
@@ -86,7 +86,7 @@ def test_repeated_header_takes_first_non_empty_value(tmp_path: Path):
     cfg = _cfg(header_rows=(1,), data_starts_at=2, row_is_product="barcode13",
                columns={"barcode": "Штрихкод", "name": "Номенклатура",
                         "price": "Цена клиента"})
-    rows = read_source(cfg, p)
+    rows, _ = read_source(cfg, p)
     assert [(r.values["name"], r.values["price"]) for r in rows] == [("Сок", 99), ("Вода", 55)]
 
 
@@ -145,7 +145,7 @@ def test_price_not_empty_rule_filters_zeros_and_empty(tmp_path: Path):
         ["A-11", "Non-numeric", "по запросу"],
     ])
 
-    rows = read_source(_cfg(), p)
+    rows, _ = read_source(_cfg(), p)
     # Non-products: A-1 to A-7 (zero or empty)
     # Products: A-8 to A-11 (valid price or non-numeric)
     assert [r.values["article"] for r in rows] == ["A-8", "A-9", "A-10", "A-11"]
@@ -158,3 +158,17 @@ def test_barcode_rule_accepts_barcode_arriving_as_float():
     assert _is_product("barcode13", {"barcode": 4607087560123}) is True
     assert _is_product("barcode13", {"barcode": 40111216.0}) is False
     assert _is_product("barcode13", {"barcode": None}) is False
+
+
+def test_read_source_reports_how_many_rows_were_skipped(tmp_path: Path):
+    """Строки, отброшенные до всякого счётчика, — тоже часть присланного прайса."""
+    p = _book(tmp_path / "p.xlsx", [
+        ["Артикул", "Наименование", "Цена"],
+        ["A-1", "Товар один", 100],
+        ["РАЗДЕЛ", "Бытовая химия", None],
+        ["РАЗДЕЛ", "Бакалея", None],
+        ["A-2", "Товар два", 250.5],
+    ])
+    rows, skipped = read_source(_cfg(), p)
+    assert [r.values["article"] for r in rows] == ["A-1", "A-2"]
+    assert skipped == 2

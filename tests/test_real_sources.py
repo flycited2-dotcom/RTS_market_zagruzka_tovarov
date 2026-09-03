@@ -14,8 +14,8 @@ EXPECTED_MINIMUM = {
     "promet": 12000,
     "brinex_wheels": 7000,
     "brinex_tires": 4000,
-    "gurinenko_bakaleya": 1200,
-    "gurinenko_grushevo": 3800,
+    "gurinenko_bakaleya": 1255,
+    "gurinenko_grushevo": 3960,
     "opt": 400,
     "priceopt": 1600,
 }
@@ -27,7 +27,7 @@ def test_source_reads_and_normalizes(code: str, tmp_path: Path):
     cfg = sources[code]
     path = find_source_file(cfg.file_glob)
 
-    rows = read_source(cfg, path)
+    rows, _ = read_source(cfg, path)
     assert len(rows) >= EXPECTED_MINIMUM[code], f"{code}: прочитано слишком мало строк"
 
     units = load_units(ROOT / "reference" / "okei.csv")

@@ -323,3 +323,15 @@ def test_unknown_skip_code_aborts(tmp_path: Path):
     with pytest.raises(ValueError) as exc:
         build(paths, sources, _company(), skip=["opechatka"])
     assert "opechatka" in str(exc.value)
+
+
+def test_skipped_rows_are_counted_in_source_statistics(tmp_path: Path):
+    paths = _paths(tmp_path)
+    sources = {"s": _source(tmp_path, [
+        ["A-1", "Товар", 122],
+        ["РАЗДЕЛ", "Бакалея", None],
+        ["A-2", "Второй", 244],
+    ])}
+    result = build(paths, sources, _company())
+    assert result.stats[0].read == 2
+    assert result.stats[0].skipped == 1
