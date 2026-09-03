@@ -75,12 +75,13 @@ def test_resolver_skips_unchanged_files_on_second_run(tmp_path: Path):
     publisher = LocalPublisher(tmp_path / "published", "https://example.ru/p")
     manifest = tmp_path / "photos.json"
 
-    PhotoResolver(tmp_path / "photos", publisher, manifest).urls_for(_item())
+    first = PhotoResolver(tmp_path / "photos", publisher, manifest)
+    first.urls_for(_item())
+    first.save()
     assert publisher.uploads == 1
 
     second = PhotoResolver(tmp_path / "photos", publisher, manifest)
     second.urls_for(_item())
-    second.save()
     assert publisher.uploads == 1
 
 

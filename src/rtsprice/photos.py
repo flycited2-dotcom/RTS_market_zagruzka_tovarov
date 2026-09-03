@@ -126,7 +126,6 @@ class PhotoResolver:
 
     def urls_for(self, item: Item) -> list[str]:
         urls: list[str] = []
-        changed = False
         for index, path in enumerate(
             find_photos(self.root, item.source, item.article, self.limit), start=1
         ):
@@ -140,12 +139,15 @@ class PhotoResolver:
             url = self.publisher.publish(remote, normalize_image(raw))
             self._manifest[digest] = url
             urls.append(url)
-            changed = True
-        if changed:
-            self.save()
         return urls
 
     def save(self) -> None:
+        """Записать манифест один раз за сборку.
+
+        Вызывается оркестровкой в конце, а не из urls_for: манифест пишется
+        целиком, и сохранение на каждую новую фотографию превратило бы одну
+        запись в десятки тысяч.
+        """
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
         self.manifest_path.write_text(
             json.dumps(self._manifest, ensure_ascii=False, indent=1), encoding="utf-8"
