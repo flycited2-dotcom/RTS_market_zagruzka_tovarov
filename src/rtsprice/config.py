@@ -36,6 +36,9 @@ class SourceConfig:
     price_includes_vat: bool = True
     description_template: str = "{name}"
     okpd2_by_group: dict[str, str] = field(default_factory=dict)
+    # Код для источника, весь ассортимент которого относится к одной позиции
+    # классификатора. Применяется, когда в прайсе нет ни колонки ОКПД2, ни группы.
+    okpd2_default: str | None = None
     country: str | None = None
     region: str | None = None
 
@@ -111,6 +114,7 @@ def load_sources(path: Path) -> dict[str, SourceConfig]:
             price_includes_vat=bool(body.get("price_includes_vat", True)),
             description_template=str(body.get("description_template", "{name}")),
             okpd2_by_group={str(k): str(v) for k, v in (body.get("okpd2_by_group") or {}).items()},
+            okpd2_default=(body.get("okpd2_default") or None),
             country=(body.get("country") or None),
             region=(body.get("region") or None),
         )

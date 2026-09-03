@@ -151,7 +151,9 @@ def normalize_source(
             description=build_description(cfg.description_template, template_values, name),
             price_in=price,
             unit=unit,
-            okpd2=_text(values.get("okpd2")) or cfg.okpd2_by_group.get(group or ""),
+            okpd2=(_text(values.get("okpd2"))
+                   or cfg.okpd2_by_group.get(group or "")
+                   or cfg.okpd2_default),
             barcode=barcode,
             country=_text(values.get("country")) or cfg.country,
             region=_text(values.get("region")) or cfg.region,

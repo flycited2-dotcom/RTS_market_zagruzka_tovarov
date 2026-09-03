@@ -34,6 +34,7 @@ brinex_wheels:
     brand: "Производитель"
     diameter: "Диаметр"
   min_stock: 1
+  okpd2_default: "29.32.30.220"   # Колеса, ступицы и их детали
   unit_default: "ШТ"
   description_template: |
     {name}
@@ -58,6 +59,7 @@ brinex_tires:
     brand: "Производитель"
     width: "Ширина"
   min_stock: 1
+  okpd2_default: "22.11.11.000"   # Шины и покрышки пневматические для легковых автомобилей новые
   unit_default: "ШТ"
   description_template: |
     {name}

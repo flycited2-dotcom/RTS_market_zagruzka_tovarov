@@ -135,6 +135,29 @@ def test_numeric_attribute_is_canonicalised_for_description(tmp_path: Path):
     assert items[0].description == "Товар\nДиаметр: 15"
 
 
+def test_okpd2_default_applies_when_price_has_no_code(tmp_path: Path):
+    cfg = _cfg(okpd2_default="22.11.11.000")
+    idmap = IdMap(tmp_path / "m.csv")
+    items, _ = normalize_source(cfg, [_row()], idmap, set(), UNITS, {})
+    assert items[0].okpd2 == "22.11.11.000"
+
+
+def test_okpd2_from_price_wins_over_default(tmp_path: Path):
+    cfg = _cfg(columns={"article": "A", "name": "N", "price": "P", "okpd2": "K"},
+               okpd2_default="22.11.11.000")
+    idmap = IdMap(tmp_path / "m.csv")
+    items, _ = normalize_source(cfg, [_row(okpd2="26.40.20.122")], idmap, set(), UNITS, {})
+    assert items[0].okpd2 == "26.40.20.122"
+
+
+def test_okpd2_by_group_wins_over_default(tmp_path: Path):
+    cfg = _cfg(columns={"article": "A", "name": "N", "price": "P", "group": "G"},
+               okpd2_by_group={"Шины": "22.11.11.000"}, okpd2_default="29.32.30.220")
+    idmap = IdMap(tmp_path / "m.csv")
+    items, _ = normalize_source(cfg, [_row(group="Шины")], idmap, set(), UNITS, {})
+    assert items[0].okpd2 == "22.11.11.000"
+
+
 def test_duplicate_article_within_source_rejected(tmp_path: Path):
     idmap = IdMap(tmp_path / "m.csv")
     items, rejected = normalize_source(_cfg(), [_row(), _row(3)], idmap, set(), UNITS, {})
