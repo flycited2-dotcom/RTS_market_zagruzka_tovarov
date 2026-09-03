@@ -68,6 +68,7 @@ def _states(value: object) -> str:
 def load_sources(path: Path) -> dict[str, SourceConfig]:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     result: dict[str, SourceConfig] = {}
+    by_prefix: dict[int, str] = {}
     for code, body in raw.items():
         body = body or {}
         state = _states(body.get("state"))
@@ -76,11 +77,23 @@ def load_sources(path: Path) -> dict[str, SourceConfig]:
         rule = str(body.get("row_is_product", "price_not_empty"))
         if rule not in VALID_ROW_RULES:
             raise ValueError(f"источник {code}: неизвестное правило строки {rule!r}")
+        # Префикс задаёт границу области удаления. Два источника с одним
+        # префиксом сливаются в одну область: пересборка любого из них снимает
+        # с площадки позиции второго, даже если тот заморожен. Блоки в
+        # sources.yml пишут копированием соседнего, так что повтор — обычная
+        # опечатка, а цена ей — исчезнувший с витрины каталог.
+        prefix = int(body["prefix"])
+        if prefix in by_prefix:
+            raise ValueError(
+                f"префикс {prefix} занят дважды: источники {by_prefix[prefix]} и {code}; "
+                f"общий префикс объединил бы их в одну область удаления"
+            )
+        by_prefix[prefix] = code
         result[code] = SourceConfig(
             code=code,
             title=str(body.get("title", code)),
             state=state,
-            prefix=int(body["prefix"]),
+            prefix=prefix,
             companies=tuple(body.get("companies") or ("ooo_tlt", "ip")),
             file_glob=str(body["file"]),
             sheets=tuple(body.get("sheets") or ()),

@@ -63,3 +63,24 @@ def test_load_stoplist(tmp_path: Path):
     p = tmp_path / "stoplist.csv"
     p.write_text("source,article\npromet,A-1\npromet,A-2\n", encoding="utf-8-sig")
     assert load_stoplist(p) == {("promet", "A-1"), ("promet", "A-2")}
+
+
+def test_load_sources_rejects_duplicate_prefix(tmp_path: Path):
+    """Два источника с одним префиксом сливаются в одну область удаления."""
+    p = tmp_path / "sources.yml"
+    p.write_text(textwrap.dedent("""
+        brinex_wheels:
+          prefix: 11
+          file: "input/brinex/*.xlsx"
+        brinex_tires:
+          prefix: 11
+          file: "input/brinex/*.xlsx"
+    """), encoding="utf-8")
+    try:
+        load_sources(p)
+    except ValueError as exc:
+        assert "11" in str(exc)
+        assert "brinex_wheels" in str(exc)
+        assert "brinex_tires" in str(exc)
+    else:
+        raise AssertionError("ожидалась ValueError о повторе префикса")
