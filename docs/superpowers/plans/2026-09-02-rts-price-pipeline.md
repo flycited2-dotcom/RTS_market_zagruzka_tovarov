@@ -2931,6 +2931,25 @@ def test_report_contains_per_source_numbers(tmp_path: Path):
     assert out.read_text(encoding="utf-8") == text
 
 
+def test_report_flags_source_that_read_nothing(tmp_path: Path):
+    text = write_report_md(
+        tmp_path / "report.md",
+        [SourceStats("opt", "ОПТ", "on", "", 0, 0, 0, {"не найден файл": 1})],
+        {},
+    )
+    assert "ВНИМАНИЕ" in text
+    assert "ни одной строки" in text
+
+
+def test_report_stays_quiet_about_frozen_source(tmp_path: Path):
+    text = write_report_md(
+        tmp_path / "report.md",
+        [SourceStats("brinex", "Бринэкс", "frozen", "", 0, 0, 0)],
+        {},
+    )
+    assert "ВНИМАНИЕ" not in text
+
+
 def test_report_flags_source_that_lost_most_positions(tmp_path: Path):
     text = write_report_md(
         tmp_path / "report.md",
@@ -3012,17 +3031,29 @@ def write_report_md(
     lines.append("| Источник | Состояние | Файл | Прочитано | Отсеяно | Принято |")
     lines.append("|---|---|---|---|---|---|")
     for s in stats:
+        name = s.file_name or "—"
         lines.append(
-            f"| {s.title} | {s.state} | {s.file_name} | {s.read} | {s.rejected} | {s.accepted} |"
+            f"| {s.title} | {s.state} | {name} | {s.read} | {s.rejected} | {s.accepted} |"
         )
 
+    # Источник, из которого не прочитано ни строки, — самый опасный случай:
+    # поставщик переименовал колонку или файл не положили, и в выгрузку не
+    # попадёт ничего. Без отдельной проверки он выглядел бы как замороженный.
+    # Замороженные и выключенные источники молчат намеренно.
     warnings = [
         s for s in stats
-        if s.read and s.rejected / s.read > SUSPICIOUS_LOSS_RATIO
+        if s.state == "on"
+        and (s.read == 0 or s.rejected / s.read > SUSPICIOUS_LOSS_RATIO)
     ]
     if warnings:
         lines += ["", "## ВНИМАНИЕ", ""]
         for s in warnings:
+            if s.read == 0:
+                lines.append(
+                    f"- {s.title}: не прочитано ни одной строки. "
+                    f"Файл не найден или структура прайса изменилась."
+                )
+                continue
             share = round(100 * s.rejected / s.read)
             lines.append(f"- {s.title}: отсеяно {share}% строк. Проверьте прайс и конфигурацию.")
 
@@ -3053,7 +3084,7 @@ def write_report_md(
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_report.py -v`
-Ожидается: PASS, 3 теста
+Ожидается: PASS, 5 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
