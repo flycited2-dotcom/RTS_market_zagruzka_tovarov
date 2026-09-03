@@ -25,7 +25,13 @@ EXPECTED_MINIMUM = {
 def test_source_reads_and_normalizes(code: str, tmp_path: Path):
     sources = load_sources(ROOT / "sources.yml")
     cfg = sources[code]
-    path = find_source_file(cfg.file_glob)
+    # input/ не попадает в git, поэтому на свежем клоне прайсов нет. Пропуск
+    # с внятной причиной честнее семи ошибок сбора.
+    try:
+        path = find_source_file(str(ROOT / cfg.file_glob))
+    except FileNotFoundError:
+        pytest.skip(f"{code}: прайс не найден по шаблону {cfg.file_glob} — "
+                    f"положите файл в input/, каталог не хранится в git")
 
     rows, _ = read_source(cfg, path)
     assert len(rows) >= EXPECTED_MINIMUM[code], f"{code}: прочитано слишком мало строк"

@@ -96,6 +96,7 @@ def test_unknown_state_is_rejected(project: Path):
 
 
 def test_check_runs_without_writing_output(project: Path, capsys):
+    _price_book(project, [["A-1", "Товар", 100]])
     assert main(["--root", str(project), "check"]) == 0
     assert not (project / "output").exists()
     assert "Прочитано" in capsys.readouterr().out
@@ -114,3 +115,29 @@ def test_uploaded_clears_pending_deletions(project: Path, capsys):
     assert not pending.exists()
     assert "1" in capsys.readouterr().out
     assert load_snapshot(pending) == {}
+
+
+def _price_book(project: Path, rows: list[list]) -> None:
+    directory = project / "input" / "promet"
+    directory.mkdir(parents=True, exist_ok=True)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Артикул", "Наименование", "Цена"])
+    for row in rows:
+        ws.append(row)
+    wb.save(directory / "price.xlsx")
+
+
+def test_check_returns_nonzero_when_an_active_source_read_nothing(project: Path, capsys):
+    """check должен годиться как ворота: молчащий источник — не успех."""
+    assert main(["--root", str(project), "check"]) != 0
+    assert "Промет" in capsys.readouterr().out
+
+
+def test_check_returns_zero_when_every_active_source_read_rows(project: Path):
+    _price_book(project, [["A-1", "Товар", 100]])
+    assert main(["--root", str(project), "check"]) == 0
+
+
+def test_build_returns_nonzero_when_an_active_source_read_nothing(project: Path):
+    assert main(["--root", str(project), "build"]) != 0

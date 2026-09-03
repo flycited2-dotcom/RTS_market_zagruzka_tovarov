@@ -10,7 +10,6 @@ promet:
   columns:
     article: "Артикул"
     name: "Наименование"
-    supplier_id: "ID"
     price: "Розничная цена"
   unit_default: "ШТ"
   price_includes_vat: true

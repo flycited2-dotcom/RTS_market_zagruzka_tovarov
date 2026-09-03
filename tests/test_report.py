@@ -107,3 +107,15 @@ def test_report_table_shows_skipped_rows(tmp_path: Path):
     )
     assert "Пропущено" in text
     assert "| 78 |" in text
+
+
+def test_changes_heading_is_separated_from_the_table(tmp_path: Path):
+    """На чистом прогоне заголовок вплотную к таблице проглатывается разметкой."""
+    text = write_report_md(
+        tmp_path / "report.md",
+        [SourceStats("promet", "Промет", "on", "p.xlsx", 10, 0, 10)],
+        {"ooo_tlt": DiffStats(new=1)},
+    )
+    lines = text.splitlines()
+    heading = lines.index("## Изменения относительно прошлой выгрузки")
+    assert lines[heading - 1] == ""

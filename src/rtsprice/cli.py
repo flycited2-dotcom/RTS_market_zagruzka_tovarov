@@ -83,6 +83,14 @@ def _run_build(root: Path, args, dry_run: bool) -> int:
     for company, files in result.files.items():
         for path in files:
             print(f"записан {path}")
+
+    # Включённый источник, не давший ни строки, — отказ, а не результат:
+    # файл не положили или поставщик переименовал колонку. Ненулевой код
+    # позволяет ставить `check` воротами перед сборкой.
+    silent = [s.title for s in result.stats if s.state == "on" and s.read == 0]
+    if silent:
+        print(f"ВНИМАНИЕ: ни одной строки не прочитано из источников: {', '.join(silent)}")
+        return 1
     return 0
 
 
