@@ -3372,7 +3372,10 @@ def collect_items(
             stats.append(SourceStats(cfg.code, cfg.title, cfg.state, "", 0, 0, 0))
             continue
         try:
-            path = find_source_file(cfg.file_glob)
+            # Шаблон в конфиге задан относительно корня проекта, а не рабочего
+            # каталога: иначе запуск не из корня молча не нашёл бы ни одного
+            # прайса. Абсолютный путь Path сохраняет как есть.
+            path = find_source_file(str(paths.root / cfg.file_glob))
         except FileNotFoundError as exc:
             stats.append(SourceStats(cfg.code, cfg.title, cfg.state, "", 0, 0, 0,
                                      {str(exc): 1}))
@@ -3532,7 +3535,7 @@ git commit -m "feat: оркестровка сборки с расчётом у�
 
 **Интерфейсы:**
 - Потребляет: `build`, `Paths` (задача 14), загрузчики конфигурации (задача 1)
-- Производит: `main(argv) -> int`, `format_status(sources, root) -> str`,
+- Производит: `main(argv) -> int`, `format_status(root) -> str`,
   `set_state(path, code, state)`
 
 - [ ] **Шаг 1: Написать падающий тест**
@@ -3543,6 +3546,7 @@ from pathlib import Path
 
 import pytest
 
+import openpyxl
 from rtsprice.cli import main, set_state
 from rtsprice.config import load_sources
 
@@ -3598,6 +3602,35 @@ def test_freeze_and_on_round_trip(project: Path):
     assert load_sources(project / "sources.yml")["promet"].state == "frozen"
     main(["--root", str(project), "on", "promet"])
     assert load_sources(project / "sources.yml")["promet"].state == "on"
+
+
+def test_set_state_matches_block_indentation(tmp_path: Path):
+    p = tmp_path / "sources.yml"
+    p.write_text(
+        'promet:
+'
+        '    title: "Промет"
+'
+        '    prefix: 10
+'
+        '    file: "input/promet/*.xlsx"
+',
+        encoding="utf-8",
+    )
+    set_state(p, "promet", "off")
+    assert "    state: off" in p.read_text(encoding="utf-8")
+    assert load_sources(p)["promet"].state == "off"
+
+
+def test_status_resolves_source_glob_against_root(project: Path, capsys):
+    directory = project / "input" / "promet"
+    directory.mkdir(parents=True)
+    wb = openpyxl.Workbook()
+    wb.active.append(["Артикул", "Наименование", "Цена"])
+    wb.save(directory / "price.xlsx")
+
+    assert main(["--root", str(project), "status"]) == 0
+    assert "price.xlsx" in capsys.readouterr().out
 
 
 def test_set_state_rejects_unknown_source(project: Path):
@@ -3660,7 +3693,19 @@ def set_state(path: Path, code: str, state: str) -> None:
             break
     if not replaced:
         index = next(i for i, l in enumerate(lines) if re.fullmatch(rf"{re.escape(code)}:\s*", l))
-        lines.insert(index + 1, f"  state: {state}")
+        # Отступ берётся у соседнего ключа того же блока: файл может быть
+        # размечен и двумя пробелами, и четырьмя, а вставка с чужим отступом
+        # молча ломает YAML — команда отрапортует успех, а конфиг перестанет
+        # читаться при следующем запуске.
+        indent = "  "
+        for line in lines[index + 1:]:
+            if not line.strip():
+                continue
+            if not line[0].isspace():
+                break
+            indent = line[: len(line) - len(line.lstrip())]
+            break
+        lines.insert(index + 1, f"{indent}state: {state}")
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -3669,7 +3714,7 @@ def format_status(root: Path) -> str:
     rows = [("Источник", "Состояние", "Компании", "Файл", "Дата")]
     for cfg in sorted(sources.values(), key=lambda c: c.code):
         try:
-            path = find_source_file(cfg.file_glob)
+            path = find_source_file(str(root / cfg.file_glob))
             name = path.name
             stamp = datetime.fromtimestamp(path.stat().st_mtime).strftime("%d.%m.%Y")
         except FileNotFoundError:
@@ -3743,7 +3788,7 @@ if __name__ == "__main__":
 - [ ] **Шаг 4: Убедиться, что тесты проходят**
 
 Выполнить: `python -m pytest tests/test_cli.py -v`
-Ожидается: PASS, 6 тестов
+Ожидается: PASS, 8 тестов
 
 - [ ] **Шаг 5: Зафиксировать**
 
