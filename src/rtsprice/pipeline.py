@@ -13,7 +13,7 @@ from .normalize import Item, Rejection, normalize_source
 from .photos import PhotoResolver
 from .readers import find_source_file, read_source
 from .reference import load_okpd2, load_unit_aliases, load_units
-from .render import C_ID, C_PRICE, render_row
+from .render import C_ARTICLE, C_ID, C_PRICE, render_row
 from .report import DiffStats, SourceStats, write_errors_xlsx, write_report_md
 from .state import deletion_rows, load_snapshot, save_snapshot
 from .validate import Issue, validate_and_fix
@@ -56,6 +56,60 @@ def _active(sources: dict[str, SourceConfig], only, skip) -> list[SourceConfig]:
         if (not only or code in only) and (not skip or code not in skip)
     ]
     return sorted(chosen, key=lambda c: c.code)
+
+
+def _guard_id_map_present(
+    map_path: Path,
+    idmap: IdMap,
+    snapshots: dict[str, dict[int, list[object]]],
+) -> None:
+    """Отказать в сборке, если карта идентификаторов утрачена.
+
+    Счётчики нумерации восстанавливаются только из самой карты, поэтому при
+    пустом файле нумерация начинается заново — и идентификатор, известный
+    площадке как артикул A, достаётся артикулу B. Следующий импорт перепишет
+    существующие позиции чужими названиями и ценами, а в отчёте это выглядит
+    как обычная неделя: «изменилась цена».
+    """
+    if idmap.loaded_count:
+        return
+    occupied = [code for code, rows in snapshots.items() if rows]
+    if not occupied:
+        return
+    raise RuntimeError(
+        f"{map_path} пуст или отсутствует, а снимки выгрузок ({', '.join(sorted(occupied))}) "
+        f"не пусты: карта идентификаторов утрачена. Сборка остановлена — продолжение "
+        f"перепривязало бы существующие позиции площадки к другим товарам. "
+        f"Восстановите state/ из резервной копии."
+    )
+
+
+def _guard_articles_unchanged(
+    snapshots: dict[str, dict[int, list[object]]],
+    by_source: dict[str, list[Item]],
+) -> None:
+    """Отказать, если идентификатор из снимка теперь принадлежит другому артикулу.
+
+    Снимок хранит артикул рядом с идентификатором, так что проверка стоит
+    одного сравнения на строку — а ловит ровно тот случай, ради которого
+    существует карта: подмену привязки.
+    """
+    for items in by_source.values():
+        for item in items:
+            for company_code, previous in snapshots.items():
+                row = previous.get(item.rts_id)
+                if row is None:
+                    continue
+                was = row[C_ARTICLE]
+                if was is None or str(was) == item.article:
+                    continue
+                raise RuntimeError(
+                    f"идентификатор {item.rts_id} в снимке last_{company_code}.csv "
+                    f"принадлежит артикулу {was!r}, а сейчас назначен артикулу "
+                    f"{item.article!r} источника {item.source}. Сборка остановлена: "
+                    f"импорт переписал бы существующую позицию другим товаром. "
+                    f"Проверьте state/id_map.csv."
+                )
 
 
 def collect_items(
@@ -115,11 +169,19 @@ def build(
     dry_run: bool = False,
 ) -> BuildResult:
     active = _active(sources, only, skip)
-    idmap = IdMap(paths.state / "id_map.csv")
+    map_path = paths.state / "id_map.csv"
+    idmap = IdMap(map_path)
     okpd2 = load_okpd2(paths.reference / "okpd2.csv")
     units = load_units(paths.reference / "okei.csv")
 
+    targets = [c for c in companies if not company_codes or c in company_codes]
+    snapshots = {
+        code: load_snapshot(paths.state / f"last_{code}.csv") for code in targets
+    }
+    _guard_id_map_present(map_path, idmap, snapshots)
+
     by_source, stats, rejections = collect_items(paths, active, idmap, stoplist or set())
+    _guard_articles_unchanged(snapshots, by_source)
     if not dry_run:
         # Идентификаторы выданы на этом шаге и уже могут уйти в записанный файл.
         # Карта только пополняется, поэтому сохраняем сразу: если сборка упадёт
@@ -154,7 +216,7 @@ def build(
                 rows.append(fixed)
 
         snapshot_path = paths.state / f"last_{company_code}.csv"
-        previous = load_snapshot(snapshot_path)
+        previous = snapshots[company_code]
         current_ids = {int(r[C_ID]) for r in rows}
 
         # Снимать с продажи можно только позиции тех источников, которые в этом

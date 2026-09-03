@@ -24,6 +24,10 @@ class IdMap:
                     self._by_key[(row["source"], row["article"])] = rts_id
                     p = prefix_of(rts_id)
                     self._max_in_prefix[p] = max(self._max_in_prefix.get(p, 0), rts_id % BLOCK)
+        # Сколько соответствий было в файле на момент загрузки. Счётчики
+        # нумерации восстанавливаются только отсюда, поэтому пустая карта при
+        # непустой витрине — не «первый запуск», а потеря состояния.
+        self.loaded_count = len(self._by_key)
 
     def get_or_create(self, source: str, prefix: int, article: str) -> int:
         if not 1 <= int(prefix) <= 99:

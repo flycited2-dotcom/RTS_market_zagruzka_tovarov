@@ -166,3 +166,45 @@ def test_missing_source_file_is_reported_not_fatal(tmp_path: Path):
     result = build(paths, {"x": broken}, _company())
     assert result.stats[0].read == 0
     assert "не найден" in " ".join(result.stats[0].reasons)
+
+
+def test_build_refuses_when_id_map_is_lost(tmp_path: Path):
+    """Пустая карта при непустом снимке означала бы перепривязку всей витрины."""
+    paths = _paths(tmp_path)
+    sources = {"s": _source(tmp_path, [["A-1", "Товар", 122], ["A-2", "Второй", 244]])}
+    build(paths, sources, _company())
+    (paths.state / "id_map.csv").unlink()
+
+    with pytest.raises(RuntimeError) as exc:
+        build(paths, sources, _company())
+    message = str(exc.value)
+    assert "id_map.csv" in message
+    assert "утрачен" in message or "потеряна" in message
+
+
+def test_build_refuses_when_identifier_now_points_at_another_article(tmp_path: Path):
+    paths = _paths(tmp_path)
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+
+    # Карта подменена: тот же идентификатор выдан другому артикулу.
+    (paths.state / "id_map.csv").write_text(
+        "source,article,rts_id\ns,ДРУГОЙ,70000001\n", encoding="utf-8-sig")
+
+    with pytest.raises(RuntimeError) as exc:
+        build(paths, {"s": _source(tmp_path, [["ДРУГОЙ", "Товар", 122]])}, _company())
+    message = str(exc.value)
+    assert "70000001" in message
+    assert "A-1" in message and "ДРУГОЙ" in message
+
+
+def test_build_refuses_before_writing_anything(tmp_path: Path):
+    paths = _paths(tmp_path)
+    sources = {"s": _source(tmp_path, [["A-1", "Товар", 122]])}
+    build(paths, sources, _company())
+    (paths.state / "id_map.csv").unlink()
+    before = (paths.state / "last_ooo_tlt.csv").read_text(encoding="utf-8-sig")
+
+    with pytest.raises(RuntimeError):
+        build(paths, sources, _company())
+    assert not (paths.state / "id_map.csv").exists()
+    assert (paths.state / "last_ooo_tlt.csv").read_text(encoding="utf-8-sig") == before
