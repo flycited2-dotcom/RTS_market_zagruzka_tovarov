@@ -99,3 +99,18 @@ def test_check_runs_without_writing_output(project: Path, capsys):
     assert main(["--root", str(project), "check"]) == 0
     assert not (project / "output").exists()
     assert "Прочитано" in capsys.readouterr().out
+
+
+def test_uploaded_clears_pending_deletions(project: Path, capsys):
+    from rtsprice.render import COLUMN_COUNT, C_ID
+    from rtsprice.state import load_snapshot, save_snapshot
+
+    row = [None] * COLUMN_COUNT
+    row[C_ID] = 100_000_001
+    pending = project / "state" / "pending_delete_ooo_tlt.csv"
+    save_snapshot(pending, [row])
+
+    assert main(["--root", str(project), "uploaded", "ooo_tlt"]) == 0
+    assert not pending.exists()
+    assert "1" in capsys.readouterr().out
+    assert load_snapshot(pending) == {}

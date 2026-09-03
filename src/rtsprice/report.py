@@ -31,6 +31,8 @@ class DiffStats:
     changed_price: int = 0
     unchanged: int = 0
     deleted: int = 0
+    # Удаления, отправленные в файл, но ещё не подтверждённые командой uploaded.
+    pending: int = 0
 
 
 def write_errors_xlsx(
@@ -101,7 +103,8 @@ def write_report_md(
         for company, d in diffs.items():
             lines.append(
                 f"- {company}: новых: {d.new}, изменилась цена: {d.changed_price}, "
-                f"без изменений: {d.unchanged}, снимается: {d.deleted}"
+                f"без изменений: {d.unchanged}, снимается: {d.deleted}, "
+                f"ожидают подтверждения: {d.pending}"
             )
 
     text = "\n".join(lines) + "\n"

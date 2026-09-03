@@ -65,3 +65,13 @@ def test_report_flags_source_that_lost_most_positions(tmp_path: Path):
         {},
     )
     assert "ВНИМАНИЕ" in text
+
+
+def test_report_shows_outstanding_deletions(tmp_path: Path):
+    text = write_report_md(
+        tmp_path / "report.md",
+        [],
+        {"ooo_tlt": DiffStats(new=1, changed_price=2, unchanged=3, deleted=4, pending=7)},
+    )
+    assert "снимается: 4" in text
+    assert "ожидают подтверждения: 7" in text

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import VALID_STATES, load_companies, load_sources, load_stoplist
-from .pipeline import Paths, build
+from .pipeline import Paths, build, clear_pending
 from .readers import find_source_file
 
 
@@ -79,7 +79,7 @@ def _run_build(root: Path, args, dry_run: bool) -> int:
         print(f"{s.title}: Прочитано {s.read}, отсеяно {s.rejected}, принято {s.accepted}")
     for company, diff in result.diffs.items():
         print(f"{company}: новых {diff.new}, изменилась цена {diff.changed_price}, "
-              f"снимается {diff.deleted}")
+              f"снимается {diff.deleted}, ожидают подтверждения {diff.pending}")
     for company, files in result.files.items():
         for path in files:
             print(f"записан {path}")
@@ -100,12 +100,18 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("on", "off", "freeze"):
         p = sub.add_parser(name, help=f"перевести источник в состояние {name}")
         p.add_argument("source")
+    p = sub.add_parser("uploaded", help="файл компании загружен: забыть удаления")
+    p.add_argument("company")
 
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
 
     if args.command == "status":
         print(format_status(root))
+        return 0
+    if args.command == "uploaded":
+        count = clear_pending(Paths(root=root), args.company)
+        print(f"{args.company}: подтверждено удалений — {count}")
         return 0
     if args.command in ("on", "off", "freeze"):
         state = "frozen" if args.command == "freeze" else args.command

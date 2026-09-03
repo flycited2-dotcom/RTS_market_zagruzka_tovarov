@@ -58,6 +58,45 @@ def _active(sources: dict[str, SourceConfig], only, skip) -> list[SourceConfig]:
     return sorted(chosen, key=lambda c: c.code)
 
 
+def pending_path(paths: Paths, company_code: str) -> Path:
+    return paths.state / f"pending_delete_{company_code}.csv"
+
+
+def clear_pending(paths: Paths, company_code: str) -> int:
+    """Забыть неподтверждённые удаления компании: файл загружен на площадку."""
+    path = pending_path(paths, company_code)
+    count = len(load_snapshot(path))
+    path.unlink(missing_ok=True)
+    return count
+
+
+def merge_pending(
+    pending: dict[int, list[object]],
+    removals: list[list[object]],
+    current_ids: set[int],
+) -> list[list[object]]:
+    """Слить неподтверждённые удаления с найденными в этом запуске.
+
+    Удаление — это указание площадке, а не свершившийся факт: файл могли ещё
+    не загрузить. Снимок же после первой сборки уже не помнит снятую позицию,
+    поэтому вторая сборка того же дня перезаписала бы файл без строки
+    удаления, и позиция осталась бы на витрине по старой цене навсегда.
+
+    Повторить удаление позиции, которую площадка уже сняла, ничего не стоит:
+    импорт просто не найдёт её. Потерять удаление стоит проданного по
+    неверной цене товара. Эта асимметрия и есть причина всей конструкции —
+    здесь дублируем, но не теряем.
+    """
+    merged = dict(pending)
+    for row in removals:
+        merged[int(row[C_ID])] = row  # свежая строка вытесняет старую
+    # Позиция, вернувшаяся в прайс, больше не удаляется: иначе один файл
+    # содержал бы для неё и строку обновления, и строку снятия.
+    for rts_id in current_ids:
+        merged.pop(rts_id, None)
+    return [row for _, row in sorted(merged.items())]
+
+
 def _guard_id_map_present(
     map_path: Path,
     idmap: IdMap,
@@ -245,14 +284,22 @@ def build(
 
         removals = deletion_rows(previous, current_ids, untouched)
         diff.deleted = len(removals)
+
+        pending_file = pending_path(paths, company_code)
+        outstanding = merge_pending(load_snapshot(pending_file), removals, current_ids)
+        diff.pending = len(outstanding)
         result.diffs[company_code] = diff
 
         if dry_run:
             continue
 
         result.files[company_code] = write_price_file(
-            rows + removals, paths.output / f"{company_code}.xlsx"
+            rows + outstanding, paths.output / f"{company_code}.xlsx"
         )
+        if outstanding:
+            save_snapshot(pending_file, outstanding)
+        else:
+            pending_file.unlink(missing_ok=True)
         # Снимок описывает то, что сейчас стоит на площадке, а не то, что
         # записано в этот раз. Позиции непересобиравшихся источников остаются
         # на витрине и переносятся в новый снимок: иначе они выпали бы из

@@ -7,7 +7,7 @@ import pytest
 import dataclasses
 
 from rtsprice.config import CompanyConfig, SourceConfig
-from rtsprice.pipeline import Paths, build
+from rtsprice.pipeline import Paths, build, clear_pending
 from rtsprice.render import C_DELETE, C_ID, C_NAME, C_PRICE
 from rtsprice.state import load_snapshot
 
@@ -208,3 +208,59 @@ def test_build_refuses_before_writing_anything(tmp_path: Path):
         build(paths, sources, _company())
     assert not (paths.state / "id_map.csv").exists()
     assert (paths.state / "last_ooo_tlt.csv").read_text(encoding="utf-8-sig") == before
+
+
+def _delete_ids(path: Path) -> list[int]:
+    ws = openpyxl.load_workbook(path).active
+    return [
+        int(r[C_ID]) for r in ([c.value for c in row] for row in ws.iter_rows(min_row=3))
+        if r[C_DELETE] == 1
+    ]
+
+
+def test_second_build_same_day_still_carries_earlier_deletion(tmp_path: Path):
+    """Повторная сборка перезаписывает файл дня — удаление не должно пропасть."""
+    paths = _paths(tmp_path)
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122], ["A-2", "Второй", 244]])},
+          _company())
+    first = build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+    assert _delete_ids(first.files["ooo_tlt"][0]) == [70_000_002]
+
+    second = build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+    assert _delete_ids(second.files["ooo_tlt"][0]) == [70_000_002]
+    assert second.diffs["ooo_tlt"].pending == 1
+
+
+def test_uploaded_clears_pending_and_next_build_does_not_repeat_deletion(tmp_path: Path):
+    paths = _paths(tmp_path)
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122], ["A-2", "Второй", 244]])},
+          _company())
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+
+    assert clear_pending(paths, "ooo_tlt") == 1
+    assert not (paths.state / "pending_delete_ooo_tlt.csv").exists()
+
+    third = build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+    assert _delete_ids(third.files["ooo_tlt"][0]) == []
+    assert third.diffs["ooo_tlt"].pending == 0
+
+
+def test_pending_deletion_is_dropped_when_position_comes_back(tmp_path: Path):
+    paths = _paths(tmp_path)
+    both = [["A-1", "Товар", 122], ["A-2", "Второй", 244]]
+    build(paths, {"s": _source(tmp_path, both)}, _company())
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+    back = build(paths, {"s": _source(tmp_path, both)}, _company())
+
+    assert _delete_ids(back.files["ooo_tlt"][0]) == []
+    assert back.diffs["ooo_tlt"].pending == 0
+
+
+def test_dry_run_does_not_touch_pending_file(tmp_path: Path):
+    paths = _paths(tmp_path)
+    build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122], ["A-2", "Второй", 244]])},
+          _company())
+    result = build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company(),
+                   dry_run=True)
+    assert not (paths.state / "pending_delete_ooo_tlt.csv").exists()
+    assert result.diffs["ooo_tlt"].deleted == 1
