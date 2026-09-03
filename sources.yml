@@ -1,1 +1,138 @@
-# Реестр источников. Заполняется в задаче 16.
+promet:
+  title: "Промет"
+  state: on
+  prefix: 10
+  file: "input/promet/*.xlsx"
+  sheets: ["база"]
+  header_rows: [1]
+  data_starts_at: 2
+  row_is_product: price_not_empty
+  columns:
+    article: "Артикул"
+    name: "Наименование"
+    supplier_id: "ID"
+    price: "Розничная цена"
+  unit_default: "ШТ"
+  price_includes_vat: true
+  description_template: |
+    {name}
+    Артикул производителя: {article}
+
+brinex_wheels:
+  title: "Бринэкс, автодиски"
+  state: on
+  prefix: 11
+  file: "input/brinex/*.xlsx"
+  sheets: ["Автодиски"]
+  header_rows: [6]
+  data_starts_at: 8
+  row_is_product: price_not_empty
+  columns:
+    article: "Артикул"
+    name: "Номенклатура"
+    price: "Цена"
+    stock: "Остаток общий"
+    brand: "Производитель"
+    diameter: "Диаметр"
+  min_stock: 1
+  unit_default: "ШТ"
+  description_template: |
+    {name}
+    Производитель: {brand}
+    Диаметр: {diameter}
+    Артикул производителя: {article}
+
+brinex_tires:
+  title: "Бринэкс, автошины"
+  state: on
+  prefix: 12
+  file: "input/brinex/*.xlsx"
+  sheets: ["Автошины"]
+  header_rows: [6]
+  data_starts_at: 8
+  row_is_product: price_not_empty
+  columns:
+    article: "Артикул"
+    name: "Номенклатура"
+    price: "Цена"
+    stock: "Остаток общий"
+    brand: "Производитель"
+    width: "Ширина"
+  unit_default: "ШТ"
+  description_template: |
+    {name}
+    Производитель: {brand}
+    Ширина профиля: {width}
+    Артикул производителя: {article}
+
+gurinenko_bakaleya:
+  title: "Гуриненко, бакалея"
+  state: on
+  prefix: 13
+  file: "input/gurinenko_bakaleya/*.xlsx"
+  sheets: ["Лист_1"]
+  header_rows: [1, 2]
+  data_starts_at: 3
+  row_is_product: barcode13
+  columns:
+    barcode: "Штрихкод"
+    name: "Номенклатура"
+    price: "Цена клиента"
+    stock: "Остаток"
+  min_stock: 1
+  unit_default: "ШТ"
+  description_template: "{name}"
+
+gurinenko_grushevo:
+  title: "Гуриненко, Грушево"
+  state: on
+  prefix: 14
+  file: "input/gurinenko_grushevo/*.xlsx"
+  sheets: ["Лист_1"]
+  header_rows: [2, 3]
+  data_starts_at: 4
+  row_is_product: barcode13
+  columns:
+    barcode: "Штрихкод"
+    name: "Номенклатура"
+    price: "Цена клиента"
+  unit_default: "ШТ"
+  description_template: "{name}"
+
+opt:
+  title: "Прайс-лист ОПТ"
+  state: on
+  prefix: 15
+  file: "input/opt/*.xlsx"
+  sheets: ["Лист_1"]
+  header_rows: [3, 4]
+  data_starts_at: 5
+  row_is_product: price_not_empty
+  columns:
+    article: "Артикул"
+    name: "Номенклатура"
+    price: "Закуп Цена"
+    stock: "Склад основной ООО Остаток"
+  unit_default: "ШТ"
+  description_template: "{name}"
+
+priceopt:
+  title: "Посуда и кухня"
+  state: on
+  prefix: 16
+  file: "input/priceopt/*.xls"
+  sheets: ["Лист_1"]
+  header_rows: [1]
+  data_starts_at: 4
+  row_is_product: price_not_empty
+  columns:
+    article: "Код"
+    name: "Номенклатура 01-09-26"
+    price: "Цена"
+    group: "Группа"
+    brand: "Производитель"
+  unit_default: "ШТ"
+  description_template: |
+    {name}
+    Производитель: {brand}
+    Категория: {group}
