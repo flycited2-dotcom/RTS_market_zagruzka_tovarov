@@ -1,8 +1,8 @@
 # Куда публиковать фотографии. Скопируйте в photos.yml и заполните.
 # Файл photos.yml в git не попадает: в нём адрес сервера и путь к ключу.
-host: 213.109.202.45
-port: 22
+host: 212.116.115.150
+port: 2222
 user: root
-key_path: "~/.ssh/id_ritualb2b_claude"
-remote_root: /var/www/photos
-base_url: "https://example.ru/photos"
+key_path: "~/.ssh/id_ritualb2b_admin"
+remote_root: /opt/oasis/rts-photos
+base_url: "https://splithome.ru/rts-photos"
