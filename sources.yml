@@ -28,6 +28,7 @@ brinex_wheels:
   row_is_product: price_not_empty
   columns:
     article: "Артикул"
+    goods_id: "Код товара (goods_id)"   # ключ к API изображений
     name: "Номенклатура"
     price: "Цена"
     stock: "Остаток общий"
@@ -75,6 +76,7 @@ brinex_tires:
   row_is_product: price_not_empty
   columns:
     article: "Артикул"
+    goods_id: "Код товара (goods_id)"   # ключ к API изображений
     name: "Номенклатура"
     price: "Цена"
     stock: "Остаток общий"

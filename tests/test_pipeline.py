@@ -11,6 +11,8 @@ from rtsprice.pipeline import Paths, build, clear_pending
 from rtsprice.render import C_DELETE, C_ID, C_NAME, C_PRICE
 from rtsprice.state import load_snapshot
 
+NEWLINE = chr(10)
+
 
 def _paths(tmp_path: Path) -> Paths:
     for name in ("input", "photos", "reference", "state", "output"):
@@ -180,6 +182,39 @@ def test_build_refuses_when_id_map_is_lost(tmp_path: Path):
     message = str(exc.value)
     assert "id_map.csv" in message
     assert "утрачен" in message or "потеряна" in message
+
+
+def test_build_refuses_when_id_map_is_truncated(tmp_path: Path):
+    """Урезанная карта опаснее утраченной: она выглядит здоровой.
+
+    Максимум в префиксе цел, нумерация продолжается как ни в чём не бывало, а
+    пропавший артикул получает новый идентификатор. Сборка выдала бы разом
+    снятие старой позиции и создание новой на тот же товар, и в отчёте это
+    ничем не отличалось бы от обычной недели.
+    """
+    paths = _paths(tmp_path)
+    rows = [["A-1", "Первый", 122], ["A-2", "Второй", 244], ["A-3", "Третий", 366]]
+    sources = {"s": _source(tmp_path, rows)}
+    build(paths, sources, _company())
+
+    path = paths.state / "id_map.csv"
+    lines = path.read_text(encoding="utf-8-sig").splitlines()
+    # Убираем середину: и заголовок, и последняя строка с максимумом целы.
+    kept = lines[:1] + lines[2:]
+    path.write_text(NEWLINE.join(kept) + NEWLINE, encoding="utf-8-sig")
+
+    with pytest.raises(RuntimeError) as exc:
+        build(paths, sources, _company())
+    message = str(exc.value)
+    assert "id_map.csv" in message
+    assert "неполна" in message
+
+
+def test_build_allows_first_run_without_any_state(tmp_path: Path):
+    """Пустая карта при пустых снимках — обычный первый запуск, не отказ."""
+    paths = _paths(tmp_path)
+    result = build(paths, {"s": _source(tmp_path, [["A-1", "Товар", 122]])}, _company())
+    assert result.stats[0].accepted == 1
 
 
 def test_build_refuses_when_identifier_now_points_at_another_article(tmp_path: Path):

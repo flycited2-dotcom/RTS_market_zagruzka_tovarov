@@ -120,3 +120,29 @@ def test_resolver_returns_empty_without_photos(tmp_path: Path):
     publisher = LocalPublisher(tmp_path / "published", "https://example.ru/p")
     resolver = PhotoResolver(tmp_path / "photos", publisher, tmp_path / "photos.json")
     assert resolver.urls_for(_item()) == []
+
+
+def test_resolver_prefers_ready_urls_over_local_files(tmp_path):
+    """Ссылки от адаптера поставщика используются как есть, без публикации."""
+    from rtsprice.normalize import Item
+    from rtsprice.photos import PhotoResolver, load_url_map, save_url_map
+
+    save_url_map(tmp_path / "urls.json",
+                 {"brinex_tires/A-1": ["https://splithome.ru/rts-photos/brinex/x.jpg"]})
+    resolver = PhotoResolver(
+        tmp_path, publisher=None, manifest_path=tmp_path / "photos.json",
+        url_map=load_url_map(tmp_path / "urls.json"),
+    )
+    item = Item(source="brinex_tires", article="A-1", rts_id=120000001,
+                name="шина", description="", price_in=1.0, unit="ШТ")
+    assert resolver.urls_for(item) == ["https://splithome.ru/rts-photos/brinex/x.jpg"]
+
+    other = Item(source="brinex_tires", article="A-2", rts_id=120000002,
+                 name="шина", description="", price_in=1.0, unit="ШТ")
+    assert resolver.urls_for(other) == []
+
+
+def test_url_map_absent_is_not_an_error(tmp_path):
+    from rtsprice.photos import load_url_map
+
+    assert load_url_map(tmp_path / "urls.json") == {}

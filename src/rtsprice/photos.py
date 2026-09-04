@@ -64,6 +64,26 @@ def normalize_image(data: bytes, max_side: int = MAX_SIDE, max_bytes: int = MAX_
     return buffer.getvalue()
 
 
+def load_url_map(path: Path) -> dict[str, list[str]]:
+    """Готовые ссылки на снимки: «источник/артикул» → список адресов.
+
+    Файл пишут адаптеры поставщиков, которые публикуют изображения сами.
+    Отсутствие файла — не ошибка: у большинства источников фотографии лежат
+    локально, и карта им не нужна.
+    """
+    p = Path(path)
+    if not p.exists():
+        return {}
+    body = json.loads(p.read_text(encoding="utf-8"))
+    return {k: list(v) for k, v in body.items() if v}
+
+
+def save_url_map(path: Path, url_map: dict[str, list[str]]) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(url_map, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 class Publisher(Protocol):
     def publish(self, remote_name: str, data: bytes) -> str:
         """Опубликовать файл и вернуть его общедоступную ссылку."""
@@ -89,7 +109,7 @@ class SftpPublisher:
     """Публикация на сервер продавца по SFTP."""
 
     def __init__(self, host: str, user: str, key_path: str, remote_root: str,
-                 base_url: str, port: int = 22) -> None:
+                 base_url: str, port: int = 22, timeout: float = 120.0) -> None:
         import paramiko
 
         self.remote_root = remote_root.rstrip("/")
@@ -97,9 +117,13 @@ class SftpPublisher:
         self.uploads = 0
         client = paramiko.SSHClient()
         client.load_system_host_keys()
-        client.connect(hostname=host, port=port, username=user, key_filename=key_path)
+        client.connect(hostname=host, port=port, username=user, key_filename=key_path,
+                       timeout=timeout)
         self._client = client
         self._sftp = client.open_sftp()
+        # Без таймаута оборванная сеть останавливает выгрузку навсегда и молча:
+        # процесс живёт, файлы не идут, причина ниоткуда не видна.
+        self._sftp.get_channel().settimeout(timeout)
 
     def _mkdirs(self, path: str) -> None:
         parts, current = path.strip("/").split("/"), ""
@@ -126,17 +150,26 @@ class SftpPublisher:
 class PhotoResolver:
     """Отдаёт ссылки на изображения позиции, публикуя только изменившиеся файлы."""
 
-    def __init__(self, root: Path, publisher: Publisher, manifest_path: Path,
-                 limit: int = 5) -> None:
+    def __init__(self, root: Path, publisher: Publisher | None, manifest_path: Path,
+                 limit: int = 5, url_map: dict[str, list[str]] | None = None) -> None:
         self.root = Path(root)
         self.publisher = publisher
         self.manifest_path = Path(manifest_path)
         self.limit = limit
+        self.url_map = url_map or {}
         self._manifest: dict[str, str] = {}
         if self.manifest_path.exists():
             self._manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
 
     def urls_for(self, item: Item) -> list[str]:
+        # Готовые ссылки от адаптера поставщика. Снимок уже опубликован, и
+        # хранить его копию на рабочей машине незачем: у Бринэкса это почти
+        # три гигабайта файлов, которые больше никому не нужны.
+        ready = self.url_map.get(f"{item.source}/{item.article}")
+        if ready:
+            return ready[: self.limit]
+        if self.publisher is None:
+            return []
         urls: list[str] = []
         for path in find_photos(self.root, item.source, item.article, self.limit):
             raw = path.read_bytes()

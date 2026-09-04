@@ -10,7 +10,7 @@ from pathlib import Path
 from .config import CompanyConfig, SourceConfig
 from .identity import IdMap, prefix_of
 from .normalize import Item, Rejection, normalize_source
-from .photos import PhotoResolver
+from .photos import PhotoResolver, load_url_map
 from .readers import find_source_file, read_source
 from .reference import load_okpd2, load_unit_aliases, load_units
 from .render import C_ARTICLE, C_ID, C_PRICE, render_row
@@ -134,6 +134,42 @@ def _guard_id_map_present(
     )
 
 
+def _guard_id_map_complete(
+    map_path: Path,
+    idmap: IdMap,
+    snapshots: dict[str, dict[int, list[object]]],
+) -> None:
+    """Отказать, если карта потеряла часть соответствий.
+
+    Проверка пустой карты этого не ловит: если файл урезали, а максимальный
+    номер в префиксе уцелел, нумерация выглядит здоровой. Пропавший артикул
+    получит новый идентификатор выше максимума, сверка со снимком его не
+    найдёт — и сборка выдаст сразу и снятие старой позиции, и создание новой
+    на тот же товар. На витрине это выглядит как обычное обновление.
+
+    Снимок — надёжный контрольный список: карта пополняется и никогда не
+    чистится, поэтому идентификатор из снимка обязан в ней быть.
+    """
+    if not idmap.loaded_count:
+        return  # пустую карту ловит отдельная, более громкая проверка
+    lost: dict[str, list[int]] = {}
+    for company_code, previous in snapshots.items():
+        missing = sorted(set(previous) - idmap.loaded_ids)
+        if missing:
+            lost[company_code] = missing
+    if not lost:
+        return
+    total = sum(len(v) for v in lost.values())
+    example = next(iter(lost.items()))
+    raise RuntimeError(
+        f"{map_path}: карта идентификаторов неполна — {total} номеров из снимков "
+        f"выгрузок в ней отсутствуют (например, в last_{example[0]}.csv: "
+        f"{', '.join(str(i) for i in example[1][:5])}). Сборка остановлена: этим "
+        f"позициям были бы выданы новые идентификаторы, а старые пошли бы на "
+        f"снятие с продажи. Восстановите state/ из резервной копии."
+    )
+
+
 def _guard_articles_unchanged(
     snapshots: dict[str, dict[int, list[object]]],
     by_source: dict[str, list[Item]],
@@ -230,6 +266,7 @@ def build(
         code: load_snapshot(paths.state / f"last_{code}.csv") for code in targets
     }
     _guard_id_map_present(map_path, idmap, snapshots)
+    _guard_id_map_complete(map_path, idmap, snapshots)
 
     by_source, stats, rejections = collect_items(paths, active, idmap, stoplist or set())
     _guard_articles_unchanged(snapshots, by_source)
@@ -240,9 +277,11 @@ def build(
         idmap.save()
     result = BuildResult(stats=stats, rejections=rejections)
 
+    url_map = load_url_map(paths.photos / "urls.json")
     resolver = (
-        PhotoResolver(paths.photos, photo_publisher, paths.state / "photos.json")
-        if photo_publisher else None
+        PhotoResolver(paths.photos, photo_publisher, paths.state / "photos.json",
+                      url_map=url_map)
+        if photo_publisher or url_map else None
     )
     stats_by_code = {s.code: s for s in stats}
     # Позиции, отбитые на проверке. Ключ — артикул, поэтому позиция,
