@@ -225,3 +225,28 @@ def test_weight_blocks_only_a_gross_mismatch():
     heavy = Position("S5", "Сейф AMH-125/2T", SECTION_URL, 1250, 450, 395, 223)
     assert agrees(heavy, (1258, 450, 400), 270.0)
     assert not agrees(heavy, (1258, 450, 400), 500.0)
+
+
+def test_client_tells_which_articles_it_can_cover():
+    """Из 13 255 позиций прайса размечены 1 722, и разбросаны они по всему
+    файлу. Без этого отбора «--limit 20» берёт двадцать первых строк —
+    комплектующие, которых на витринных листах нет, — и проба даёт ноль."""
+    index = client({})
+    assert index.covers("S1")
+    assert not index.covers("00000001688")
+
+
+def test_normalize_resolves_cyrillic_twins_inside_a_model_code():
+    """В прайсе «FRS-36.СL» набрано с кириллической «С», на сайте — с
+    латинской. Глазом не отличить, для машины это разные строки, и чистая
+    транслитерация даёт «frs36sl», теряя совпадение."""
+    assert model_code("Сейф FRS-36.СL") == model_code("Сейф FRS-36.CL")
+    assert model_code("Сейф MDTB ES-63Т.Е") == model_code("Сейф MDTB ES-63T.E")
+
+
+def test_normalize_still_transliterates_russian_words():
+    """Двойники не должны съесть транслит: на сайте разделы и товары
+    записаны как «stellazh» и «stol», а не «ctellazh» и «ctol»."""
+    assert normalize("Стеллаж") == "stellazh"
+    assert normalize("Стол") == "stol"
+    assert normalize("Сейф") == "seif"

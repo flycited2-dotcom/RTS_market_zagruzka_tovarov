@@ -219,6 +219,15 @@ def _fetch_photos(root: Path, args) -> int:
                 wanted.extend(found)
 
             index, closable = _image_index(api, root, args, sources, codes)
+            # Поставщик может заранее сказать, по каким позициям у него нет
+            # данных. Отсеиваем их до прогона: иначе --limit возьмёт первые
+            # строки прайса, а они у Промета сплошь комплектующие, которых
+            # на витринных листах нет, и проба покажет ноль.
+            covers = getattr(index, "covers", None)
+            if covers:
+                known = [t for t in wanted if covers(t.article)]
+                print(f"с разметкой поставщика: {len(known)} из {len(wanted)}")
+                wanted = known
             try:
                 report = fetch_photos(wanted, index, sink, limit=args.limit, log=print)
             finally:
