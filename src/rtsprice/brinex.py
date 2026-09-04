@@ -323,8 +323,9 @@ class PublishSink:
     """
 
     def __init__(self, publisher, manifest_path: Path, url_map_path: Path,
-                 prefix: str = "brinex") -> None:
+                 prefix: str = "brinex", save_every: int = 200) -> None:
         self.publisher = publisher
+        self.save_every = save_every
         self.manifest_path = Path(manifest_path)
         self.url_map_path = Path(url_map_path)
         self.prefix = prefix
@@ -351,14 +352,23 @@ class PublishSink:
                 self.uploaded += 1
             for target in group:
                 self.url_map[f"{target.source}/{target.article}"] = [url]
+            # Карта пишется по ходу дела, а не только в конце: полная выгрузка
+            # Бринэкса идёт часами, и обрыв на середине не должен стоить всего
+            # уже загруженного — иначе повторный запуск зальёт то же самое.
+            if self.save_every and self.uploaded % self.save_every == 0:
+                self._save_unlocked()
         return len(group)
 
-    def save(self) -> None:
+    def _save_unlocked(self) -> None:
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
         self.manifest_path.write_text(
             json.dumps(self.manifest, ensure_ascii=False, indent=1), encoding="utf-8"
         )
         save_url_map(self.url_map_path, self.url_map)
+
+    def save(self) -> None:
+        with self._lock:
+            self._save_unlocked()
 
 
 def photo_path(root: Path, source: str, article: str) -> Path:
@@ -374,6 +384,7 @@ def fetch_photos(
     download: Callable[[str], bytes] = _download,
     limit: int | None = None,
     workers: int = 6,
+    give_up_after: int = 50,
     log: Callable[[str], None] = lambda _: None,
 ) -> FetchReport:
     """Забрать фотографии позиций у поставщика и отдать их приёмнику.
@@ -433,11 +444,22 @@ def fetch_photos(
             for saved, failure in pool.map(one, list(by_url)):
                 report.saved += saved
                 if failure:
+                    # Первый сбой виден сразу, а не в отчёте через два часа:
+                    # прогон, где не получается ничего, обязан объясниться
+                    # немедленно.
+                    if len(report.failed) == 0:
+                        log(f"сбой: {failure}")
                     report.failed.append(failure)
                 done += 1
                 if done % 200 == 0:
                     log(f"обработано ссылок {done} из {report.distinct_urls}, "
                         f"получено {report.saved}…")
+                if done >= give_up_after and report.saved == 0:
+                    raise BrinexError(
+                        f"из первых {done} ссылок не получено ни одной. "
+                        f"Прогон остановлен, чтобы не тратить часы впустую. "
+                        f"Первый сбой: {report.failed[0] if report.failed else '—'}"
+                    )
     finally:
         # Сохраняем и после обрыва: полученное не должно пропасть, иначе
         # прерванный запуск заставит скачивать и заливать всё заново.

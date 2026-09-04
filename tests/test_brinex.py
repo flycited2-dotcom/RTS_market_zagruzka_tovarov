@@ -323,3 +323,42 @@ def test_map_saved_even_when_download_breaks_midway(tmp_path: Path):
                  client, sink, download=download, workers=1)
     urls = json.loads((tmp_path / "urls.json").read_text(encoding="utf-8"))
     assert "brinex_wheels/A-1" in urls and "brinex_wheels/A-2" not in urls
+
+
+def test_fetch_stops_when_nothing_at_all_comes_through(tmp_path: Path):
+    """Прогон, где не получается ничего, обязан остановиться сразу.
+
+    Именно так и вышло на первой полной выгрузке: соединение SFTP простояло
+    десять минут, пока шёл опрос API, сервер его закрыл, и процесс два часа
+    честно отчитывался о прогрессе, не сохранив ни одного файла.
+    """
+    opener = responder([[
+        {"goods_id": i, "img_url": f"https://cdn/{i}.jpg"} for i in range(1, 21)
+    ]])
+    client = BrinexClient(CONFIG, opener=opener, sleep=lambda _: None)
+
+    def download(url):
+        raise OSError("канал закрыт сервером")
+
+    with pytest.raises(BrinexError, match="не получено ни одной"):
+        fetch_photos([Target("brinex_wheels", f"A-{i}", str(i)) for i in range(1, 21)],
+                     client, DiskSink(tmp_path), download=download,
+                     workers=1, give_up_after=10)
+
+
+def test_fetch_does_not_stop_while_something_works(tmp_path: Path):
+    opener = responder([[
+        {"goods_id": i, "img_url": f"https://cdn/{i}.jpg"} for i in range(1, 21)
+    ]])
+    client = BrinexClient(CONFIG, opener=opener, sleep=lambda _: None)
+
+    def download(url):
+        if url.endswith("/1.jpg"):
+            return picture()
+        raise OSError("сбой")
+
+    report = fetch_photos(
+        [Target("brinex_wheels", f"A-{i}", str(i)) for i in range(1, 21)],
+        client, DiskSink(tmp_path), download=download, workers=1, give_up_after=10,
+    )
+    assert report.saved == 1 and len(report.failed) == 19

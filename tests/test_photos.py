@@ -1,11 +1,13 @@
 import io
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from rtsprice.normalize import Item
 from rtsprice.photos import (
-    LocalPublisher, PhotoResolver, find_photos, normalize_image, safe_name,
+    LocalPublisher, PhotoResolver, SftpPublisher, find_photos, normalize_image,
+    safe_name,
 )
 
 
@@ -146,3 +148,44 @@ def test_url_map_absent_is_not_an_error(tmp_path):
     from rtsprice.photos import load_url_map
 
     assert load_url_map(tmp_path / "urls.json") == {}
+
+
+class _Publisher(SftpPublisher):
+    """SFTP без сети: соединение и запись подменены."""
+
+    def __init__(self, fail_times=0):
+        self.log = []
+        self.fail_times = fail_times
+        super().__init__(host="h", user="u", key_path="k",
+                         remote_root="/r", base_url="https://x")
+
+    def _connect(self):
+        self.log.append("соединение")
+
+    def _write(self, remote_name, data):
+        if self.fail_times:
+            self.fail_times -= 1
+            raise OSError("канал закрыт сервером")
+        self.log.append(f"запись {remote_name}")
+
+
+def test_publisher_reconnects_after_a_dropped_channel():
+    """Опрос API длится минуты, и к первой записи канал бывает уже мёртв.
+
+    Без переподключения прогон отчитывался о прогрессе и не сохранял ничего.
+    """
+    from rtsprice.photos import SftpPublisher  # noqa: F401  (для читателя теста)
+
+    pub = _Publisher(fail_times=1)
+    url = pub.publish("brinex/a.jpg", b"x")
+    assert url == "https://x/brinex/a.jpg"
+    assert pub.reconnects == 1 and pub.uploads == 1
+    assert pub.log == ["соединение", "соединение", "запись brinex/a.jpg"]
+
+
+def test_publisher_gives_up_after_one_reconnect():
+    """Второй отказ подряд — это не простой обрыв, и молчать о нём нельзя."""
+    pub = _Publisher(fail_times=2)
+    with pytest.raises(OSError):
+        pub.publish("brinex/a.jpg", b"x")
+    assert pub.uploads == 0

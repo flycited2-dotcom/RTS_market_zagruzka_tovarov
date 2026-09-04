@@ -110,22 +110,38 @@ class SftpPublisher:
 
     def __init__(self, host: str, user: str, key_path: str, remote_root: str,
                  base_url: str, port: int = 22, timeout: float = 120.0) -> None:
-        import paramiko
-
+        self._where = dict(hostname=host, port=port, username=user,
+                           key_filename=key_path, timeout=timeout)
         self.remote_root = remote_root.rstrip("/")
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
         self.uploads = 0
+        self.reconnects = 0
+        self._client = None
+        self._sftp = None
+        self._known_dirs: set[str] = set()
+        self._connect()
+
+    def _connect(self) -> None:
+        import paramiko
+
+        self.close()
         client = paramiko.SSHClient()
         client.load_system_host_keys()
-        client.connect(hostname=host, port=port, username=user, key_filename=key_path,
-                       timeout=timeout)
+        client.connect(**self._where)
         self._client = client
         self._sftp = client.open_sftp()
         # Без таймаута оборванная сеть останавливает выгрузку навсегда и молча:
         # процесс живёт, файлы не идут, причина ниоткуда не видна.
-        self._sftp.get_channel().settimeout(timeout)
+        self._sftp.get_channel().settimeout(self.timeout)
+        self._known_dirs = set()
 
     def _mkdirs(self, path: str) -> None:
+        # Уже созданное запоминается: без этого каждый файл стоил бы трёх
+        # обращений к серверу на проверку одних и тех же каталогов, а при
+        # выгрузке в двенадцать тысяч снимков это часы чистого ожидания.
+        if path in self._known_dirs:
+            return
         parts, current = path.strip("/").split("/"), ""
         for part in parts:
             current = f"{current}/{part}"
@@ -133,18 +149,36 @@ class SftpPublisher:
                 self._sftp.stat(current)
             except FileNotFoundError:
                 self._sftp.mkdir(current)
+        self._known_dirs.add(path)
 
-    def publish(self, remote_name: str, data: bytes) -> str:
+    def _write(self, remote_name: str, data: bytes) -> None:
         target = f"{self.remote_root}/{remote_name}"
         self._mkdirs(target.rsplit("/", 1)[0])
         with self._sftp.open(target, "wb") as fh:
             fh.write(data)
+
+    def publish(self, remote_name: str, data: bytes) -> str:
+        try:
+            self._write(remote_name, data)
+        except Exception:
+            # Сервер закрывает простаивающее соединение. Выгрузка Бринэкса
+            # начинается с опроса API длиной в десяток минут, и к первой же
+            # записи канал оказывался мёртвым: процесс работал, отчитывался о
+            # прогрессе и не сохранял ничего. Одна попытка переподключиться.
+            self.reconnects += 1
+            self._connect()
+            self._write(remote_name, data)
         self.uploads += 1
         return f"{self.base_url}/{remote_name}"
 
     def close(self) -> None:
-        self._sftp.close()
-        self._client.close()
+        for handle in (self._sftp, self._client):
+            try:
+                if handle is not None:
+                    handle.close()
+            except Exception:
+                pass
+        self._sftp = self._client = None
 
 
 class PhotoResolver:
