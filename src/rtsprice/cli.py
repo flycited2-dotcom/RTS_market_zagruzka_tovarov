@@ -132,16 +132,23 @@ def _image_index(api: str, root: Path, args):
     if api == "openfoodfacts":
         from .openfoodfacts import DUMP_URL, DumpIndex
 
-        dump = Path(args.dump) if args.dump else root / "input" / "openfoodfacts.csv.gz"
-        if not dump.exists():
+        if args.dump:
+            dumps = [Path(p) for p in args.dump]
+        else:
+            dumps = sorted((root / "input" / "openfoodfacts").glob("*.csv.gz"))
+        missing = [p for p in dumps if not p.exists()]
+        if missing or not dumps:
             raise SystemExit(
-                f"не найдена выгрузка базы: {dump}. "
-                f"Скачайте её ({DUMP_URL}, около 1,3 ГБ) и укажите ключом --dump. "
+                f"не найдены выгрузки базы"
+                f"{': ' + ', '.join(str(p) for p in missing) if missing else ''}. "
+                f"Положите их в input/openfoodfacts/ или укажите ключом --dump. "
+                f"Пищевая: {DUMP_URL} (около 1,3 ГБ); рядом стоит взять "
+                f"openbeautyfacts и openproductsfacts — они на два порядка меньше "
+                f"и дают четверть находок сверху. "
                 f"Опрашивать их API нельзя: он отвечает 429 уже при одном запросе "
                 f"в секунду, и отказ неотличим от «товара нет в базе»."
             )
-        print(f"читаю выгрузку {dump.name} ({dump.stat().st_size / 2**30:.2f} ГБ)")
-        return DumpIndex(dump, log=print), None
+        return DumpIndex(dumps, log=print), None
 
     raise SystemExit(f"неизвестный источник снимков: {api!r}")
 
@@ -270,7 +277,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("photos", help="получить фотографии у поставщиков")
     p.add_argument("--source", nargs="*", help="только эти источники")
     p.add_argument("--limit", type=int, help="ограничить число позиций (для пробы)")
-    p.add_argument("--dump", help="путь к выгрузке Open Food Facts (.csv.gz)")
+    p.add_argument("--dump", nargs="*",
+                   help="выгрузки Open Food Facts (.csv.gz), можно несколько")
 
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()

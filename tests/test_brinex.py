@@ -362,3 +362,42 @@ def test_fetch_does_not_stop_while_something_works(tmp_path: Path):
         client, DiskSink(tmp_path), download=download, workers=1, give_up_after=10,
     )
     assert report.saved == 1 and len(report.failed) == 19
+
+
+def test_targets_use_barcode_as_article_when_there_is_no_article_column(tmp_path: Path):
+    """Правило артикула обязано совпадать с правилом нормализации.
+
+    У Гуриненко колонки артикула нет, её роль играет штрихкод. Пока правила
+    расходились, отбор целей давал ноль на 5 228 строк — и молча.
+    """
+    p = tmp_path / "sources.yml"
+    p.write_text(textwrap.dedent("""
+        gurinenko_bakaleya:
+          prefix: 13
+          file: "input/g/*.xlsx"
+          columns:
+            barcode: "Штрихкод"
+            name: "Наименование"
+    """), encoding="utf-8")
+    cfg = load_sources(p)["gurinenko_bakaleya"]
+    rows = [RawRow("gurinenko_bakaleya", "л", 1, {"barcode": "4600699502494"})]
+    assert targets(cfg, rows, key="barcode") == [
+        Target("gurinenko_bakaleya", "4600699502494", "4600699502494")
+    ]
+
+
+def test_targets_prefer_the_article_column_when_it_exists(tmp_path: Path):
+    p = tmp_path / "sources.yml"
+    p.write_text(textwrap.dedent("""
+        s:
+          prefix: 13
+          file: "input/s/*.xlsx"
+          columns:
+            article: "Артикул"
+            barcode: "Штрихкод"
+    """), encoding="utf-8")
+    cfg = load_sources(p)["s"]
+    rows = [RawRow("s", "л", 1, {"article": "A-1", "barcode": "4600699502494"})]
+    assert targets(cfg, rows, key="barcode") == [
+        Target("s", "A-1", "4600699502494")
+    ]

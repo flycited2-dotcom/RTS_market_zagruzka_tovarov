@@ -51,11 +51,19 @@ class Target:
 
 
 def targets(cfg: SourceConfig, rows: Iterable[RawRow], key: str = "goods_id") -> list[Target]:
-    """Позиции источника, у которых есть ключ к API, без повторов артикула."""
+    """Позиции источника, у которых есть ключ к API, без повторов артикула.
+
+    Артикул выводится ровно тем же правилом, что и в нормализации: у части
+    поставщиков колонки артикула нет вовсе, и его роль играет штрихкод.
+    Разойдись эти два правила — снимок лёг бы под одним ключом, а позиция
+    искала бы его под другим, и вся работа пропала бы вхолостую и молча.
+    Так и вышло при первом запуске по Гуриненко: целей ноль на 5 228 строк.
+    """
     seen: set[str] = set()
     out: list[Target] = []
     for row in rows:
-        article = text_value(row.values.get("article"))
+        article = (text_value(row.values.get("article"))
+                   or text_value(row.values.get("barcode")))
         code = text_value(row.values.get(key))
         if not article or not code or article in seen:
             continue

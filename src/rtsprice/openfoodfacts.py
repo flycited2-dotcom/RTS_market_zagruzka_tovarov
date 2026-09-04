@@ -20,7 +20,7 @@ import json
 import ssl
 import time
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Sequence
 
 from .photobank import PhotoBankError
 
@@ -40,16 +40,25 @@ def _key(barcode: object) -> str:
 
 
 class DumpIndex:
-    """Ссылки на снимки из полной выгрузки базы.
+    """Ссылки на снимки из полных выгрузок базы.
 
     Файл в полтора гигабайта читается потоком и на диск не разворачивается.
     Проход один: сначала собираются нужные коды, потом выгрузка проходится
     насквозь ровно один раз, сколько бы штрихкодов мы ни искали.
+
+    Выгрузок несколько, потому что база не одна. Часть товаров лежит в
+    Open Beauty Facts и Open Products Facts: у продуктового поставщика есть
+    бытовая химия и косметика, и API на такой штрихкод отвечает
+    «product found with a different product type: beauty». Замерено: пищевая
+    база дала 419 снимков, косметическая ещё 114, товарная ещё 22.
     """
 
-    def __init__(self, dump_path: Path, log: Callable[[str], None] = lambda _: None,
+    def __init__(self, dump_paths: Path | str | Sequence[Path | str],
+                 log: Callable[[str], None] = lambda _: None,
                  code_column: str = "code", image_column: str = "image_url") -> None:
-        self.dump_path = Path(dump_path)
+        if isinstance(dump_paths, (str, Path)):
+            dump_paths = [dump_paths]
+        self.dump_paths = [Path(p) for p in dump_paths]
         self._log = log
         self.code_column = code_column
         self.image_column = image_column
@@ -65,7 +74,19 @@ class DumpIndex:
             return {}
 
         found: dict[str, str] = {}
-        with gzip.open(self.dump_path, "rt", encoding="utf-8", errors="replace",
+        for path in self.dump_paths:
+            self._log(f"читаю {path.name} ({path.stat().st_size / 2 ** 30:.2f} ГБ)")
+            before = len(found)
+            # Найденное не ищется снова: базы не пересекаются по товарам, и
+            # второй проход по тем же кодам был бы чистой тратой времени.
+            self._scan(path, {k: v for k, v in wanted.items() if v not in found}, found)
+            self._log(f"  {path.name}: новых снимков {len(found) - before}")
+        return found
+
+    def _scan(self, path: Path, wanted: dict[str, str], found: dict[str, str]) -> None:
+        if not wanted:
+            return
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace",
                        newline="") as fh:
             header = fh.readline().rstrip("\n").split("\t")
             try:
@@ -73,7 +94,7 @@ class DumpIndex:
                 at_image = header.index(self.image_column)
             except ValueError as exc:
                 raise PhotoBankError(
-                    f"{self.dump_path.name}: в выгрузке нет колонки "
+                    f"{path.name}: в выгрузке нет колонки "
                     f"{self.code_column!r} или {self.image_column!r}"
                 ) from exc
             width = len(header)
@@ -94,7 +115,7 @@ class DumpIndex:
                 url = parts[at_image].strip()
                 if url.startswith("http"):
                     found[original] = url
-        return found
+
 
 HOST = "world.openfoodfacts.org"
 PAUSE = 1.1

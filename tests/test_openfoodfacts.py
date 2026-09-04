@@ -13,6 +13,7 @@ NL = chr(10)
 
 
 def dump(tmp_path: Path, rows, header=("code", "product_name", "image_url")) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "off.csv.gz"
     lines = [TAB.join(header)] + [TAB.join(r) for r in rows]
     with gzip.open(path, "wt", encoding="utf-8", newline="") as fh:
@@ -107,3 +108,35 @@ def test_api_client_does_not_swallow_rate_limiting():
 
     with pytest.raises(PhotoBankError, match="429"):
         OpenFoodFactsClient(get=get, sleep=lambda _: None).images(["1"])
+
+
+def test_several_dumps_are_read_in_order(tmp_path: Path):
+    """Часть товаров лежит в Open Beauty Facts, а не в пищевой базе.
+
+    У продовольственного поставщика есть бытовая химия и косметика, и на
+    такой штрихкод API отвечает «different product type: beauty». Замерено:
+    пищевая база дала 419 снимков, косметическая ещё 114.
+    """
+    food = tmp_path / "food.csv.gz"
+    beauty = tmp_path / "beauty.csv.gz"
+    for path, rows in (
+        (food, [("4600000000001", "Сок", "https://x/сок.jpg")]),
+        (beauty, [("4600000000002", "Шампунь", "https://x/шампунь.jpg")]),
+    ):
+        with gzip.open(path, "wt", encoding="utf-8", newline="") as fh:
+            fh.write(TAB.join(("code", "product_name", "image_url")) + NL)
+            for r in rows:
+                fh.write(TAB.join(r) + NL)
+
+    got = DumpIndex([food, beauty]).images(["4600000000001", "4600000000002"])
+    assert got == {
+        "4600000000001": "https://x/сок.jpg",
+        "4600000000002": "https://x/шампунь.jpg",
+    }
+
+
+def test_second_dump_is_not_searched_for_what_the_first_already_gave(tmp_path: Path):
+    first = dump(tmp_path / "a", [("4600000000001", "Сок", "https://x/первый.jpg")])
+    second = dump(tmp_path / "b", [("4600000000001", "Сок", "https://x/второй.jpg")])
+    index = DumpIndex([first, second])
+    assert index.images(["4600000000001"]) == {"4600000000001": "https://x/первый.jpg"}
