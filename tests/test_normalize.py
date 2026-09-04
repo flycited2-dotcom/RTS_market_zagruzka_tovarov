@@ -194,3 +194,32 @@ def test_comparator_in_price_is_still_rejected(tmp_path: Path):
     items, rejected = normalize_source(_cfg(), [_row(price=">100")], idmap, set(), UNITS, {})
     assert not items
     assert rejected[0].field == "price"
+
+
+def test_excludes_names_by_start_but_not_by_occurrence(tmp_path: Path):
+    """Фильтр смотрит только на начало наименования.
+
+    По вхождению он снял бы с продажи живой товар: в прайсе ОПТ «Лента»
+    в начале строки — ритуальная, а «Внутренний блок MDSI-09HRDN8 MDV» и
+    «Лента тефлоновая AVIORA PROFFI» — сплит-система и сантехника.
+    """
+    idmap = IdMap(tmp_path / "m.csv")
+    cfg = _cfg(exclude_name_starts=("Лента КОРОНА", "Голова"))
+    rows = [
+        _row(1, article="A-1", name="Лента КОРОНА 5 см х 25у белый", price=30),
+        _row(2, article="A-2", name="Голова бутона розы (d-60mm)", price=9),
+        _row(3, article="A-3", name="Лента тефлоновая AVIORA PROFFI", price=90),
+        _row(4, article="A-4", name="Пылесос с лентой КОРОНА внутри", price=9000),
+    ]
+    items, rejected = normalize_source(cfg, rows, idmap, set(), UNITS, {})
+    assert [i.article for i in items] == ["A-3", "A-4"]
+    assert {r.article for r in rejected} == {"A-1", "A-2"}
+    assert all("начинается" in r.reason for r in rejected)
+
+
+def test_exclusion_is_case_insensitive(tmp_path: Path):
+    idmap = IdMap(tmp_path / "m.csv")
+    cfg = _cfg(exclude_name_starts=("ветка",))
+    items, rejected = normalize_source(
+        cfg, [_row(1, article="A", name="Ветка лилии", price=5)], idmap, set(), UNITS, {})
+    assert not items and len(rejected) == 1

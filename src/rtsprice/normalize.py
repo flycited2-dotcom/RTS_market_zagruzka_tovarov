@@ -114,6 +114,16 @@ def normalize_source(
                                       "пустое наименование"))
             continue
 
+        lowered = name.casefold()
+        excluded = next(
+            (s for s in cfg.exclude_name_starts if lowered.startswith(s.casefold())),
+            None,
+        )
+        if excluded:
+            rejected.append(Rejection(cfg.code, article, row.row_number, "name",
+                                      f"наименование начинается с {excluded!r}", name))
+            continue
+
         price = parse_number(values.get("price"))
         if price is None or price <= 0:
             rejected.append(Rejection(cfg.code, article, row.row_number, "price",

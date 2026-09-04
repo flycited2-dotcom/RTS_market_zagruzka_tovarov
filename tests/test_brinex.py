@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from rtsprice.brinex import (
-    BrinexClient, BrinexConfig, BrinexError, DiskSink, PublishSink, Target,
-    fetch_photos, load_brinex, photo_path, targets,
+from rtsprice.brinex import BrinexClient, BrinexConfig, BrinexError, load_brinex
+from rtsprice.photobank import (
+    DiskSink, PhotoBankError, PublishSink, Target, fetch_photos, photo_path, targets,
 )
 from rtsprice.config import load_sources
 from rtsprice.readers import RawRow
@@ -340,7 +340,7 @@ def test_fetch_stops_when_nothing_at_all_comes_through(tmp_path: Path):
     def download(url):
         raise OSError("канал закрыт сервером")
 
-    with pytest.raises(BrinexError, match="не получено ни одной"):
+    with pytest.raises(PhotoBankError, match="не получено ни одной"):
         fetch_photos([Target("brinex_wheels", f"A-{i}", str(i)) for i in range(1, 21)],
                      client, DiskSink(tmp_path), download=download,
                      workers=1, give_up_after=10)

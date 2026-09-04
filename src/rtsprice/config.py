@@ -28,6 +28,10 @@ class SourceConfig:
     columns: dict[str, str]
     include_groups: tuple[str, ...] = ()
     exclude_groups: tuple[str, ...] = ()
+    #: Начала наименований, которые не выгружаются. Фильтр по началу, а не
+    #: по вхождению: «Лента» в начале строки — ритуальная лента, а внутри
+    #: строки то же слово встречается у сантехники и стиральных машин.
+    exclude_name_starts: tuple[str, ...] = ()
     min_stock: float | None = None
     markup: float = 1.0
     markup_by_group: dict[str, float] = field(default_factory=dict)
@@ -123,6 +127,7 @@ def load_sources(path: Path) -> dict[str, SourceConfig]:
             columns=dict(body.get("columns") or {}),
             include_groups=tuple(body.get("include_groups") or ()),
             exclude_groups=tuple(body.get("exclude_groups") or ()),
+            exclude_name_starts=tuple(body.get("exclude_name_starts") or ()),
             min_stock=(None if body.get("min_stock") is None else float(body["min_stock"])),
             markup=float(body.get("markup", 1.0)),
             markup_by_group={str(k): float(v) for k, v in (body.get("markup_by_group") or {}).items()},

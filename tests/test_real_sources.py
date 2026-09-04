@@ -40,8 +40,14 @@ def test_source_reads_and_normalizes(code: str, tmp_path: Path):
     aliases = load_unit_aliases(ROOT / "reference" / "unit_aliases.yml")
     items, rejected = normalize_source(cfg, rows, IdMap(tmp_path / f"{code}.csv"),
                                        set(), units, aliases)
-    assert len(items) >= 0.8 * len(rows), (
-        f"{code}: отсеяно больше 20% строк, причины: "
+    # Отсев по настроенному фильтру наименований — намеренный, и в долю
+    # потерь не входит: у ОПТ им убраны 318 строк ритуальных материалов из
+    # 521. Порог сторожит другое — молчаливую потерю товара из-за смены
+    # формата прайса.
+    deliberate = sum(1 for r in rejected if "начинается" in r.reason)
+    expected = len(rows) - deliberate
+    assert len(items) >= 0.8 * expected, (
+        f"{code}: отсеяно больше 20% строк сверх настроенного фильтра, причины: "
         f"{ {r.reason for r in rejected} }"
     )
     for item in items[:50]:
