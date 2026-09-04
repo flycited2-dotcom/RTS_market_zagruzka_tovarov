@@ -109,7 +109,7 @@ def _photo_sink(root: Path):
     )
 
 
-def _image_index(api: str, root: Path, args):
+def _image_index(api: str, root: Path, args, sources=None, codes=()):
     """Поставщик ссылок на снимки и то, что нужно закрыть после работы."""
     if api == "brinex":
         from .brinex import BrinexClient, SshOpener, load_brinex
@@ -149,6 +149,27 @@ def _image_index(api: str, root: Path, args):
                 f"в секунду, и отказ неотличим от «товара нет в базе»."
             )
         return DumpIndex(dumps, log=print), None
+
+    if api == "promet":
+        from .promet import PrometClient, read_catalog_map
+
+        # Карта разделов живёт в самой книге прайса: поставщик расставил на
+        # витринных листах гиперссылки на разделы своего каталога. Читаем её
+        # заново при каждом прогоне, чтобы новый прайс подхватывался сам.
+        cfg = sources[list(codes)[0]] if sources and codes else None
+        if cfg is None:
+            raise SystemExit("не задан источник, из чьей книги брать разметку каталога")
+        catalog = read_catalog_map(find_source_file(str(root / cfg.file_glob)))
+        if not catalog:
+            raise SystemExit(
+                "в книге прайса нет гиперссылок на разделы каталога — "
+                "без них сопоставлять позиции с карточками сайта нечем"
+            )
+        with_size = sum(1 for p in catalog.values() if p.height is not None)
+        print(f"разметка поставщика: {len(catalog)} позиций в "
+              f"{len({p.section for p in catalog.values()})} разделах каталога, "
+              f"из них {with_size} с размерами для сверки")
+        return PrometClient(catalog, log=print), None
 
     raise SystemExit(f"неизвестный источник снимков: {api!r}")
 
@@ -197,7 +218,7 @@ def _fetch_photos(root: Path, args) -> int:
                 print(f"{cfg.title}: строк {len(rows)}, с ключом {len(found)}")
                 wanted.extend(found)
 
-            index, closable = _image_index(api, root, args)
+            index, closable = _image_index(api, root, args, sources, codes)
             try:
                 report = fetch_photos(wanted, index, sink, limit=args.limit, log=print)
             finally:
@@ -208,6 +229,12 @@ def _fetch_photos(root: Path, args) -> int:
             print()
             for line in report.lines():
                 print(line)
+            # Поставщик может объяснить, почему позиция осталась без снимка:
+            # у Промета отказ по расхождению размеров — это результат, а не сбой.
+            explain = getattr(index, "lines", None)
+            if explain:
+                for line in explain():
+                    print(line)
             for failure in report.failed[:20]:
                 print("  сбой:", failure)
             if len(report.failed) > 20:

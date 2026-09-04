@@ -1,5 +1,7 @@
 promet:
   title: "Промет"
+  photo_api: promet         # ключ — артикул, раздел каталога берётся из
+  photo_key: article        # гиперссылок, расставленных поставщиком в книге
   state: on
   prefix: 10
   file: "input/promet/*.xlsx"
