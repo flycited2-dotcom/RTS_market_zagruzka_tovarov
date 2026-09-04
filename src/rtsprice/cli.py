@@ -88,74 +88,133 @@ def _photo_publisher(root: Path, dry_run: bool):
     )
 
 
-def _fetch_brinex_photos(root: Path, args) -> int:
-    """Скачать фотографии Бринэкса в каталог photos/.
+def _photo_sink(root: Path):
+    """Куда складывать полученные снимки.
 
-    Отдельная команда, а не часть сборки: это сетевая работа на десятки
-    минут, её прерывают и продолжают, а сборка обязана оставаться быстрой и
-    работать без интернета. Скачанное подхватит следующая сборка.
+    С настроенным сервером — сразу туда, на рабочей машине остаётся только
+    карта ссылок: у одного Бринэкса это около трёх гигабайт файлов, которые
+    нужны ровно один раз. Без сервера остаётся каталог photos/.
     """
-    from .brinex import (
-        BrinexClient, DiskSink, PublishSink, SshOpener, fetch_photos, load_brinex,
-        targets,
-    )
-    from .readers import read_source
-
-    config = load_brinex(root / "brinex.yml")
-    if config is None:
-        print("не найден brinex.yml — нет доступа к API, скачивать нечем")
-        return 1
+    from .photobank import DiskSink, PublishSink
 
     server = load_photo_server(root / "photos.yml")
-    opener = None
-    if config.via_photo_server:
-        if server is None:
-            print("brinex.yml просит идти через сервер фотографий, "
-                  "но photos.yml не найден")
-            return 1
-        opener = SshOpener(host=server.host, user=server.user,
-                           key_path=server.key_path, port=server.port)
-        print(f"запросы к API идут через {server.host}: токен привязан к его адресу")
-
-    # Без сервера публикации остаётся единственный вариант — складывать файлы
-    # на диск. У Бринэкса это почти три гигабайта, поэтому предупреждаем вслух.
     if server is None:
         print("photos.yml не найден: снимки лягут в photos/ и займут около 3 ГБ")
-        sink = DiskSink(root / "photos")
-        publisher = None
-    else:
-        publisher = _photo_publisher(root, dry_run=False)
-        sink = PublishSink(publisher, root / "state" / "photos.json",
-                           root / "photos" / "urls.json")
+        return DiskSink(root / "photos"), None
+    publisher = _photo_publisher(root, dry_run=False)
+    return (
+        PublishSink(publisher, root / "state" / "photos.json",
+                    root / "photos" / "urls.json"),
+        publisher,
+    )
+
+
+def _image_index(api: str, root: Path, args):
+    """Поставщик ссылок на снимки и то, что нужно закрыть после работы."""
+    if api == "brinex":
+        from .brinex import BrinexClient, SshOpener, load_brinex
+
+        config = load_brinex(root / "brinex.yml")
+        if config is None:
+            raise SystemExit("не найден brinex.yml — нет доступа к API поставщика")
+        opener = None
+        if config.via_photo_server:
+            server = load_photo_server(root / "photos.yml")
+            if server is None:
+                raise SystemExit("brinex.yml просит идти через сервер фотографий, "
+                                 "но photos.yml не найден")
+            opener = SshOpener(host=server.host, user=server.user,
+                               key_path=server.key_path, port=server.port)
+            print(f"запросы к API идут через {server.host}: "
+                  f"токен привязан к его адресу")
+        return BrinexClient(config, **({"opener": opener} if opener else {})), opener
+
+    if api == "openfoodfacts":
+        from .openfoodfacts import DUMP_URL, DumpIndex
+
+        dump = Path(args.dump) if args.dump else root / "input" / "openfoodfacts.csv.gz"
+        if not dump.exists():
+            raise SystemExit(
+                f"не найдена выгрузка базы: {dump}. "
+                f"Скачайте её ({DUMP_URL}, около 1,3 ГБ) и укажите ключом --dump. "
+                f"Опрашивать их API нельзя: он отвечает 429 уже при одном запросе "
+                f"в секунду, и отказ неотличим от «товара нет в базе»."
+            )
+        print(f"читаю выгрузку {dump.name} ({dump.stat().st_size / 2**30:.2f} ГБ)")
+        return DumpIndex(dump, log=print), None
+
+    raise SystemExit(f"неизвестный источник снимков: {api!r}")
+
+
+def _fetch_photos(root: Path, args) -> int:
+    """Получить фотографии у поставщиков и опубликовать.
+
+    Отдельная команда, а не часть сборки: это сетевая работа на часы, её
+    прерывают и продолжают, а сборка обязана оставаться быстрой и работать
+    без интернета. Полученное подхватит следующая сборка.
+    """
+    from .photobank import PublishSink, fetch_photos, targets
+    from .readers import read_source
 
     sources = load_sources(root / "sources.yml")
-    codes = args.source or [c for c in sources if c.startswith("brinex")]
-    wanted = []
-    for code in codes:
-        cfg = sources[code]
-        rows, _ = read_source(cfg, find_source_file(str(root / cfg.file_glob)))
-        found = targets(cfg, rows)
-        print(f"{cfg.title}: строк {len(rows)}, с кодом товара {len(found)}")
-        wanted.extend(found)
+    chosen = args.source or [c for c, s in sources.items() if s.photo_api]
+    unknown = [c for c in chosen if c not in sources]
+    if unknown:
+        raise SystemExit(f"неизвестные источники: {', '.join(unknown)}")
+    without_api = [c for c in chosen if not sources[c].photo_api]
+    if without_api:
+        print(f"без источника снимков, пропускаю: {', '.join(without_api)}")
 
-    client = BrinexClient(config, **({"opener": opener} if opener else {}))
+    # Источники сгруппированы по поставщику снимков: одно соединение и один
+    # проход выгрузки на всю группу, а не на каждый прайс.
+    groups: dict[str, list[str]] = {}
+    for code in chosen:
+        api = sources[code].photo_api
+        if api:
+            groups.setdefault(api, []).append(code)
+    if not groups:
+        print("нечего делать: ни один из выбранных источников не объявил photo_api")
+        return 1
+
+    sink, publisher = _photo_sink(root)
+    status = 0
     try:
-        report = fetch_photos(wanted, client, sink, limit=args.limit, log=print)
+        for api, codes in groups.items():
+            print()
+            print(f"=== {api} ===")
+            wanted = []
+            for code in codes:
+                cfg = sources[code]
+                rows, _ = read_source(cfg, find_source_file(str(root / cfg.file_glob)))
+                found = targets(cfg, rows, key=cfg.photo_key)
+                print(f"{cfg.title}: строк {len(rows)}, с ключом {len(found)}")
+                wanted.extend(found)
+
+            index, closable = _image_index(api, root, args)
+            try:
+                report = fetch_photos(wanted, index, sink, limit=args.limit, log=print)
+            finally:
+                close = getattr(closable, "close", None)
+                if close:
+                    close()
+
+            print()
+            for line in report.lines():
+                print(line)
+            for failure in report.failed[:20]:
+                print("  сбой:", failure)
+            if len(report.failed) > 20:
+                print(f"  … и ещё {len(report.failed) - 20}")
+            if report.asked and not report.saved:
+                status = 1
     finally:
-        for closable in (opener, publisher):
-            close = getattr(closable, "close", None)
-            if close:
-                close()
-    print()
-    for line in report.lines():
-        print(line)
-    if isinstance(sink, PublishSink):
-        print(f"загружено на сервер файлов:   {sink.uploaded}")
-    for failure in report.failed[:20]:
-        print("  не скачалось:", failure)
-    if len(report.failed) > 20:
-        print(f"  … и ещё {len(report.failed) - 20}")
-    return 0
+        if isinstance(sink, PublishSink):
+            print()
+            print(f"загружено на сервер файлов: {sink.uploaded}")
+        close = getattr(publisher, "close", None)
+        if close:
+            close()
+    return status
 
 
 def _run_build(root: Path, args, dry_run: bool) -> int:
@@ -208,9 +267,10 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("source")
     p = sub.add_parser("uploaded", help="файл компании загружен: забыть удаления")
     p.add_argument("company")
-    p = sub.add_parser("photos", help="скачать фотографии из API поставщика")
+    p = sub.add_parser("photos", help="получить фотографии у поставщиков")
     p.add_argument("--source", nargs="*", help="только эти источники")
     p.add_argument("--limit", type=int, help="ограничить число позиций (для пробы)")
+    p.add_argument("--dump", help="путь к выгрузке Open Food Facts (.csv.gz)")
 
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
@@ -223,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{args.company}: подтверждено удалений — {count}")
         return 0
     if args.command == "photos":
-        return _fetch_brinex_photos(root, args)
+        return _fetch_photos(root, args)
     if args.command in ("on", "off", "freeze"):
         state = "frozen" if args.command == "freeze" else args.command
         set_state(root / "sources.yml", args.source, state)

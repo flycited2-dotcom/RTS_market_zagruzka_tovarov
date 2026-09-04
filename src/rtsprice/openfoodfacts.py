@@ -3,19 +3,98 @@
 Открытая база, ключ — штрихкод EAN-13, тот самый, что уже есть в прайсах
 Гуриненко. Соединение точное, как и у Бринэкса: подбора по названию нет.
 
-База общественная и живёт на пожертвованиях, поэтому запросы идут по одному
-с паузой. Без пауз она режет частоту, и замер покрытия выходит вчетверо
-занижённым — так и случилось при первой прикидке: 4% вместо 14%.
+**Опрашивать API нельзя.** База отвечает `429 Too Many Requests` уже при
+одном запросе в секунду: из сорока запросов с паузой 0,9 с отказано
+пятнадцати. Опрос пяти тысяч штрихкодов растянулся бы на часы и всё равно
+дал бы недостоверный ответ, потому что отказ неотличим от «нет в базе» —
+на этом сгорели обе первые прикидки покрытия, 14% и 3,3%.
+
+Поэтому основной путь — `DumpIndex`: полная выгрузка базы читается потоком
+один раз. Клиент по API оставлен для точечной проверки отдельных кодов.
 """
 from __future__ import annotations
 
+import gzip
 import http.client
 import json
 import ssl
 import time
+from pathlib import Path
 from typing import Callable, Iterable
 
 from .photobank import PhotoBankError
+
+#: Выгрузка называется .csv, но разделена табуляцией, и колонок в ней 211.
+DUMP_URL = ("https://static.openfoodfacts.org/data/"
+            "en.openfoodfacts.org.products.csv.gz")
+
+
+def _key(barcode: object) -> str:
+    """Ключ сравнения штрихкодов.
+
+    В выгрузке коды хранятся как есть: EAN-8 лежит восьмизначным, а тот же
+    товар в прайсе поставщика записан тринадцатизначным с ведущими нулями.
+    Без выравнивания нулей совпадений почти не было бы.
+    """
+    return str(barcode).strip().lstrip("0")
+
+
+class DumpIndex:
+    """Ссылки на снимки из полной выгрузки базы.
+
+    Файл в полтора гигабайта читается потоком и на диск не разворачивается.
+    Проход один: сначала собираются нужные коды, потом выгрузка проходится
+    насквозь ровно один раз, сколько бы штрихкодов мы ни искали.
+    """
+
+    def __init__(self, dump_path: Path, log: Callable[[str], None] = lambda _: None,
+                 code_column: str = "code", image_column: str = "image_url") -> None:
+        self.dump_path = Path(dump_path)
+        self._log = log
+        self.code_column = code_column
+        self.image_column = image_column
+        self.scanned = 0
+
+    def images(self, codes: Iterable[str]) -> dict[str, str]:
+        wanted: dict[str, str] = {}
+        for code in codes:
+            text = str(code).strip()
+            if text:
+                wanted.setdefault(_key(text), text)
+        if not wanted:
+            return {}
+
+        found: dict[str, str] = {}
+        with gzip.open(self.dump_path, "rt", encoding="utf-8", errors="replace",
+                       newline="") as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            try:
+                at_code = header.index(self.code_column)
+                at_image = header.index(self.image_column)
+            except ValueError as exc:
+                raise PhotoBankError(
+                    f"{self.dump_path.name}: в выгрузке нет колонки "
+                    f"{self.code_column!r} или {self.image_column!r}"
+                ) from exc
+            width = len(header)
+
+            for line in fh:
+                self.scanned += 1
+                if self.scanned % 500_000 == 0:
+                    self._log(f"просмотрено записей {self.scanned:,}, "
+                              f"найдено {len(found)}…".replace(",", " "))
+                parts = line.rstrip("\n").split("\t")
+                # Строка со сдвигом колонок отдала бы ссылку не того товара.
+                # Дешевле пропустить её, чем поставить в карточку чужой снимок.
+                if len(parts) != width:
+                    continue
+                original = wanted.get(_key(parts[at_code]))
+                if original is None:
+                    continue
+                url = parts[at_image].strip()
+                if url.startswith("http"):
+                    found[original] = url
+        return found
 
 HOST = "world.openfoodfacts.org"
 PAUSE = 1.1

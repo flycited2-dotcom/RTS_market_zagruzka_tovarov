@@ -32,6 +32,11 @@ class SourceConfig:
     #: по вхождению: «Лента» в начале строки — ритуальная лента, а внутри
     #: строки то же слово встречается у сантехники и стиральных машин.
     exclude_name_starts: tuple[str, ...] = ()
+    #: Откуда брать фотографии: brinex или openfoodfacts. Пусто — источник
+    #: снимков не имеет, и команда photos его не трогает.
+    photo_api: str = ""
+    #: Колонка, по которой поставщик отдаёт снимок: код товара или штрихкод.
+    photo_key: str = "goods_id"
     min_stock: float | None = None
     markup: float = 1.0
     markup_by_group: dict[str, float] = field(default_factory=dict)
@@ -128,6 +133,8 @@ def load_sources(path: Path) -> dict[str, SourceConfig]:
             include_groups=tuple(body.get("include_groups") or ()),
             exclude_groups=tuple(body.get("exclude_groups") or ()),
             exclude_name_starts=tuple(body.get("exclude_name_starts") or ()),
+            photo_api=str(body.get("photo_api") or ""),
+            photo_key=str(body.get("photo_key") or "goods_id"),
             min_stock=(None if body.get("min_stock") is None else float(body["min_stock"])),
             markup=float(body.get("markup", 1.0)),
             markup_by_group={str(k): float(v) for k, v in (body.get("markup_by_group") or {}).items()},

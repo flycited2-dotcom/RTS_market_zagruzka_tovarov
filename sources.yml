@@ -19,6 +19,7 @@ promet:
 
 brinex_wheels:
   title: "Бринэкс, автодиски"
+  photo_api: brinex          # ключ — «Код товара (goods_id)»
   state: on
   prefix: 11
   file: "input/brinex/*.xlsx"
@@ -67,6 +68,7 @@ brinex_wheels:
 
 brinex_tires:
   title: "Бринэкс, автошины"
+  photo_api: brinex
   state: on
   prefix: 12
   file: "input/brinex/*.xlsx"
@@ -110,6 +112,8 @@ brinex_tires:
 
 
 gurinenko_bakaleya:
+  photo_api: openfoodfacts   # ключ — штрихкод EAN-13
+  photo_key: barcode
   title: "Гуриненко, бакалея"
   state: on
   prefix: 13
@@ -128,6 +132,8 @@ gurinenko_bakaleya:
   description_template: "{name}"
 
 gurinenko_grushevo:
+  photo_api: openfoodfacts
+  photo_key: barcode
   title: "Гуриненко, Грушево"
   state: on
   prefix: 14
