@@ -55,6 +55,14 @@ PAUSE = 0.3
 #: это нетто и брутто, габариты при этом сходятся до сантиметра.
 WEIGHT_RATIO = 1.5
 
+#: Карта сайта с разделом каталога товаров: около 1 900 карточек после
+#: снятия повторов. Нужна как запасной список, когда раздел из прайса исчез.
+SITEMAP_URL = "https://www.safe.ru/sitemap-news-2.xml"
+
+#: Сколько карточек-кандидатов имеет смысл проверять на одну позицию.
+#: Больше — значит код модели слишком широкий, и это отказ, а не перебор.
+MAX_CANDIDATES = 5
+
 #: Разделы верхнего уровня. Если раздел из прайса отдаёт 404, поиск
 #: поднимается на уровень выше — но не до этих: там тысяча карточек, и
 #: сужение области, ради которого всё затевалось, пропало бы.
@@ -433,7 +441,10 @@ class PrometClient:
         self.require_measurements = require_measurements
         self.log = log
         self._pages: dict[str, str | None] = {}
+        self._all_cards: list[str] | None = None
+        self.last_mismatch: tuple[int, int, int] | None = None
         self.requests = 0
+        self.found_outside_section = 0
         self.skipped_no_section = 0
         self.skipped_dead_section = 0
         self.skipped_not_found = 0
@@ -480,16 +491,58 @@ class PrometClient:
                 return []
         return cards_of(html)
 
-    def _match(self, position: Position, cards: Sequence[str]) -> str | None:
-        """Единственная карточка раздела, чей адрес несёт код модели."""
+    def catalog_cards(self) -> list[str]:
+        """Все карточки сайта — запасной список, когда раздел из прайса исчез.
+
+        Берётся из карты сайта: раздел каталога товаров лежит в
+        `sitemap-news-2.xml`, около 1 900 адресов после снятия повторов.
+        Список нужен редко, поэтому читается лениво и один раз за прогон.
+        """
+        if self._all_cards is None:
+            xml = self._page(SITEMAP_URL) or ""
+            self._all_cards = list(dict.fromkeys(
+                re.findall(r"/products/[a-z0-9\-]+/", xml)))
+            if self._all_cards:
+                self.log(f"запасной список карточек сайта: {len(self._all_cards)}")
+        return self._all_cards
+
+    def _match(self, position: Position, cards: Sequence[str]) -> list[str]:
+        """Карточки, чей адрес несёт код модели. Отбор, а не выбор."""
         code = position.code
         if len(code) < 4:
-            return None
-        hits = [c for c in cards
+            return []
+        return [c for c in cards
                 if code in normalize(c.rstrip("/").rsplit("/", 1)[-1])]
-        if len(hits) == 1:
-            return hits[0]
-        if len(hits) > 1:
+
+    def _confirm(self, position: Position, cards: Sequence[str],
+                 strict: bool) -> tuple[str, str] | None:
+        """Единственная карточка, подтверждённая размерами.
+
+        Кандидатов бывает несколько: у одной модели на сайте заводят
+        карточки под разные исполнения. Раньше это был отказ, теперь спор
+        разрешают габариты — но разрешают только вчистую: если размеры
+        сошлись у двух карточек, снимок по-прежнему не берётся.
+
+        `strict` включает обязательную сверку. Он поднят всегда, когда
+        позиция ищется вне своего раздела: там код модели остаётся
+        единственным признаком, и без размеров подтвердить нечем.
+        """
+        confirmed: list[tuple[str, str]] = []
+        for card in cards:
+            html = self._page(urllib.parse.urljoin(BASE, card))
+            if html is None:
+                continue
+            if strict or self.require_measurements:
+                dimensions, weight = measurements(html)
+                if not agrees(position, dimensions, weight):
+                    self.last_mismatch = dimensions
+                    continue
+            confirmed.append((card, html))
+            if len(confirmed) > 1:
+                break
+        if len(confirmed) == 1:
+            return confirmed[0]
+        if len(confirmed) > 1:
             self.skipped_ambiguous += 1
         return None
 
@@ -507,29 +560,52 @@ class PrometClient:
             if position is None:
                 self.skipped_no_section += 1
                 continue
+
+            strict = False
             cards = self._section_cards(position.section)
             if not cards:
-                self.skipped_dead_section += 1
-                continue
-            card = self._match(position, cards)
-            if card is None:
+                # Раздел исчез вместе с родителем — на 05.09.2026 так пропали
+                # 351 позиция. Остаётся весь каталог сайта, но тогда размеры
+                # обязаны сойтись: без раздела код модели — единственный
+                # признак, и подтвердить его больше нечем.
+                if position.height is None or position.width is None:
+                    self.skipped_dead_section += 1
+                    continue
+                cards = self.catalog_cards()
+                strict = True
+                if not cards:
+                    self.skipped_dead_section += 1
+                    continue
+
+            candidates = self._match(position, cards)
+            if not candidates:
                 self.skipped_not_found += 1
                 continue
-            html = self._page(urllib.parse.urljoin(BASE, card))
-            if html is None:
-                self.skipped_not_found += 1
+            # Слишком широкий код модели: перебирать десятки карточек ради
+            # одной позиции незачем, а отбирать из них наугад нельзя.
+            if len(candidates) > MAX_CANDIDATES:
+                self.skipped_ambiguous += 1
                 continue
-            if self.require_measurements:
-                dimensions, weight = measurements(html)
-                if not agrees(position, dimensions, weight):
+
+            self.last_mismatch = None
+            confirmed = self._confirm(position, candidates, strict)
+            if confirmed is None:
+                if self.last_mismatch is not None or (
+                        (strict or self.require_measurements) and candidates):
                     self.skipped_mismatch += 1
                     self.log(f"размеры разошлись, снимок не берём: {position.name} "
                              f"(прайс {position.height}x{position.width}, "
-                             f"сайт {dimensions})")
-                    continue
+                             f"сайт {self.last_mismatch})")
+                else:
+                    self.skipped_not_found += 1
+                continue
+
+            card, html = confirmed
             photo = photo_of(html)
             if photo:
                 found[article] = photo
+                if strict:
+                    self.found_outside_section += 1
             else:
                 self.skipped_not_found += 1
         return found
@@ -543,4 +619,5 @@ class PrometClient:
             f"карточка не найдена:         {self.skipped_not_found}",
             f"карточек несколько:          {self.skipped_ambiguous}",
             f"размеры не сошлись:          {self.skipped_mismatch}",
+            f"найдено вне своего раздела:  {self.found_outside_section}",
         ]

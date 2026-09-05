@@ -152,13 +152,31 @@ def test_client_finds_the_photo_through_the_supplier_section():
         "S1": "https://www.safe.ru/upload/iblock/a/b/detail_picture.jpg"}
 
 
-def test_client_refuses_when_two_cards_share_the_model_code():
-    """Выбор наугад между двумя карточками — это и есть чужая фотография."""
+def test_client_refuses_when_two_cards_both_match_the_measurements():
+    """Выбор наугад между двумя карточками — это и есть чужая фотография.
+
+    Спор разрешают габариты, но только вчистую: если размеры сошлись у обеих
+    карточек, различить их нечем и снимок не берётся."""
     pages = {SECTION: ('<a href="/products/seyf-mdtb-es-30-e/">a</a>'
-                       '<a href="/products/seyf-mdtb-es-30-e-el/">b</a>')}
+                       '<a href="/products/seyf-mdtb-es-30-e-el/">b</a>'),
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD,
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e-el/": CARD}
     index = client(pages)
     assert index.images(["S1"]) == {}
     assert index.skipped_ambiguous == 1
+
+
+def test_client_picks_the_card_whose_measurements_agree():
+    """Две карточки на один код модели — раньше отказ, теперь габариты
+    выбирают ту, что подходит. Это 74 позиции прогона 05.09.2026."""
+    other = CARD.replace("300x440x354", "900x440x354").replace("Вес, кг: 27",
+                                                               "Вес, кг: 60")
+    pages = {SECTION: ('<a href="/products/seyf-mdtb-es-30-e/">a</a>'
+                       '<a href="/products/seyf-mdtb-es-30-e-el/">b</a>'),
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD,
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e-el/": other}
+    assert client(pages).images(["S1"]) == {
+        "S1": "https://www.safe.ru/upload/iblock/a/b/detail_picture.jpg"}
 
 
 def test_client_refuses_when_measurements_disagree():
@@ -250,3 +268,59 @@ def test_normalize_still_transliterates_russian_words():
     assert normalize("Стеллаж") == "stellazh"
     assert normalize("Стол") == "stol"
     assert normalize("Сейф") == "seif"
+
+
+GONE = "https://www.safe.ru/catalog/seyfy/oruzheynye-shkafy-i-seyfy/tiger/"
+SITEMAP = ("<urlset><url><loc>https://www.safe.ru/products/seyf-mdtb-es-30-e/</loc></url>"
+           "<url><loc>https://www.safe.ru/products/shkaf-lh-600-c/</loc></url></urlset>")
+
+
+def test_client_falls_back_to_the_whole_catalogue_when_the_section_died():
+    """Раздел исчез вместе с родителем — так пропала 351 позиция прогона
+    05.09.2026. Остаётся весь каталог сайта, и размеры решают."""
+    position = Position("S1", "Сейф MDTB ES-30.Е", GONE, 300, 440, 354, 27)
+    pages = {GONE: "<h1>Страница не найдена</h1>",
+             "https://www.safe.ru/catalog/seyfy/oruzheynye-shkafy-i-seyfy/":
+                 "<h1>Страница не найдена</h1>",
+             "https://www.safe.ru/sitemap-news-2.xml": SITEMAP,
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD}
+    index = client(pages, catalog={"S1": position})
+    assert index.images(["S1"]) == {
+        "S1": "https://www.safe.ru/upload/iblock/a/b/detail_picture.jpg"}
+    assert index.found_outside_section == 1
+
+
+def test_fallback_demands_measurements_even_when_they_are_switched_off():
+    """Вне своего раздела код модели — единственный признак, и подтвердить
+    его больше нечем. Поэтому сверка там обязательна всегда."""
+    position = Position("S1", "Сейф MDTB ES-30.Е", GONE, 900, 440, 354, 60)
+    pages = {GONE: "<h1>Страница не найдена</h1>",
+             "https://www.safe.ru/catalog/seyfy/oruzheynye-shkafy-i-seyfy/":
+                 "<h1>Страница не найдена</h1>",
+             "https://www.safe.ru/sitemap-news-2.xml": SITEMAP,
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD}
+    index = client(pages, catalog={"S1": position}, require_measurements=False)
+    assert index.images(["S1"]) == {}
+
+
+def test_fallback_skipped_when_the_price_has_no_measurements():
+    """Без размеров запасной поиск не начинается вовсе: подтверждать нечем,
+    а лишние запросы к сайту ничего не дадут."""
+    position = Position("S1", "Сейф MDTB ES-30.Е", GONE)
+    pages = {GONE: "<h1>Страница не найдена</h1>",
+             "https://www.safe.ru/catalog/seyfy/oruzheynye-shkafy-i-seyfy/":
+                 "<h1>Страница не найдена</h1>"}
+    index = client(pages, catalog={"S1": position})
+    assert index.images(["S1"]) == {}
+    assert index.skipped_dead_section == 1
+    assert index.requests == 2      # карту сайта не запрашивали
+
+
+def test_client_refuses_a_model_code_that_is_too_broad():
+    """Код, попадающий в десяток карточек, — это не поиск, а перебор."""
+    cards = "".join(f'<a href="/products/seyf-mdtb-es-30-e-{n}/">x</a>'
+                    for n in range(8))
+    index = client({SECTION: cards})
+    assert index.images(["S1"]) == {}
+    assert index.skipped_ambiguous == 1
+    assert index.requests == 1      # ни одной карточки не открывали
