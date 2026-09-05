@@ -612,12 +612,17 @@ class PrometClient:
             self.last_mismatch = None
             confirmed = self._confirm(position, candidates, strict)
             if confirmed is None:
-                if self.last_mismatch is not None or (
-                        (strict or self.require_measurements) and candidates):
+                if self.last_mismatch is not None:
                     self.skipped_mismatch += 1
                     self.log(f"размеры разошлись, снимок не берём: {position.name} "
                              f"(прайс {position.height}x{position.width}, "
                              f"сайт {self.last_mismatch})")
+                elif (strict or self.require_measurements) and candidates:
+                    # Карточка нашлась, но подтвердить её нечем: размеров на
+                    # ней нет, а признак «раздел плюс код» здесь не работает.
+                    self.skipped_mismatch += 1
+                    self.log(f"подтвердить нечем, снимок не берём: {position.name} "
+                             f"(на карточке нет размеров)")
                 else:
                     self.skipped_not_found += 1
                 continue
