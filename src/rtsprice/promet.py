@@ -445,6 +445,7 @@ class PrometClient:
         self.last_mismatch: tuple[int, int, int] | None = None
         self.requests = 0
         self.found_outside_section = 0
+        self.skipped_no_measurements = 0
         self.skipped_no_section = 0
         self.skipped_dead_section = 0
         self.skipped_not_found = 0
@@ -534,7 +535,17 @@ class PrometClient:
                 continue
             if strict or self.require_measurements:
                 dimensions, weight = measurements(html)
-                if not agrees(position, dimensions, weight):
+                if dimensions is None:
+                    # На карточке нет блока размеров — так у сейфов Гранит,
+                    # Гарант и серии TM. Сверять нечем, и это не повод
+                    # отказывать: внутри своего раздела уже есть два
+                    # признака — раздел назначил сам поставщик, код модели
+                    # совпал. А вот вне раздела или при нескольких
+                    # кандидатах различить нечем, и снимок не берётся.
+                    if strict or len(cards) > 1:
+                        self.skipped_no_measurements += 1
+                        continue
+                elif not agrees(position, dimensions, weight):
                     self.last_mismatch = dimensions
                     continue
             confirmed.append((card, html))
@@ -619,5 +630,6 @@ class PrometClient:
             f"карточка не найдена:         {self.skipped_not_found}",
             f"карточек несколько:          {self.skipped_ambiguous}",
             f"размеры не сошлись:          {self.skipped_mismatch}",
+            f"на карточке нет размеров:    {self.skipped_no_measurements}",
             f"найдено вне своего раздела:  {self.found_outside_section}",
         ]

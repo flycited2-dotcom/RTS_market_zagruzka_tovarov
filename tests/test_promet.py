@@ -324,3 +324,43 @@ def test_client_refuses_a_model_code_that_is_too_broad():
     assert index.images(["S1"]) == {}
     assert index.skipped_ambiguous == 1
     assert index.requests == 1      # ни одной карточки не открывали
+
+
+CARD_NO_SIZE = ("<h1>Взломостойкий сейф VALBERG Гранит-65Т</h1>"
+                "Класс взломостойкости: класс III"
+                '<img src="/upload/iblock/a/b/detail_picture.jpg">')
+
+
+def test_card_without_measurements_is_accepted_inside_its_own_section():
+    """У сейфов Гранит, Гарант и серии TM на карточке нет блока размеров.
+    Внутри своего раздела сверять нечем — но раздел назначил поставщик, а
+    код модели совпал, и этих двух признаков довольно."""
+    pages = {SECTION: '<a href="/products/seyf-mdtb-es-30-e/">Сейф</a>',
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD_NO_SIZE}
+    assert client(pages).images(["S1"]) == {
+        "S1": "https://www.safe.ru/upload/iblock/a/b/detail_picture.jpg"}
+
+
+def test_card_without_measurements_is_refused_outside_the_section():
+    """Вне раздела код модели — единственный признак, и карточка без
+    размеров его не подтверждает."""
+    position = Position("S1", "Сейф MDTB ES-30.Е", GONE, 300, 440, 354, 27)
+    pages = {GONE: "<h1>Страница не найдена</h1>",
+             "https://www.safe.ru/catalog/seyfy/oruzheynye-shkafy-i-seyfy/":
+                 "<h1>Страница не найдена</h1>",
+             "https://www.safe.ru/sitemap-news-2.xml": SITEMAP,
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD_NO_SIZE}
+    index = client(pages, catalog={"S1": position})
+    assert index.images(["S1"]) == {}
+    assert index.skipped_no_measurements == 1
+
+
+def test_card_without_measurements_is_refused_when_there_are_rivals():
+    """Два кандидата и ни у одного размеров — различить нечем."""
+    pages = {SECTION: ('<a href="/products/seyf-mdtb-es-30-e/">a</a>'
+                       '<a href="/products/seyf-mdtb-es-30-e-el/">b</a>'),
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD_NO_SIZE,
+             "https://www.safe.ru/products/seyf-mdtb-es-30-e-el/": CARD_NO_SIZE}
+    index = client(pages)
+    assert index.images(["S1"]) == {}
+    assert index.skipped_no_measurements == 2
