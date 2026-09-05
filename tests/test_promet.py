@@ -158,9 +158,9 @@ def test_client_refuses_when_two_cards_both_match_the_measurements():
     Спор разрешают габариты, но только вчистую: если размеры сошлись у обеих
     карточек, различить их нечем и снимок не берётся."""
     pages = {SECTION: ('<a href="/products/seyf-mdtb-es-30-e/">a</a>'
-                       '<a href="/products/seyf-mdtb-es-30-e-el/">b</a>'),
+                       '<a href="/products/mebelnyy-seyf-mdtb-es-30-e/">b</a>'),
              "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD,
-             "https://www.safe.ru/products/seyf-mdtb-es-30-e-el/": CARD}
+             "https://www.safe.ru/products/mebelnyy-seyf-mdtb-es-30-e/": CARD}
     index = client(pages)
     assert index.images(["S1"]) == {}
     assert index.skipped_ambiguous == 1
@@ -172,9 +172,9 @@ def test_client_picks_the_card_whose_measurements_agree():
     other = CARD.replace("300x440x354", "900x440x354").replace("Вес, кг: 27",
                                                                "Вес, кг: 60")
     pages = {SECTION: ('<a href="/products/seyf-mdtb-es-30-e/">a</a>'
-                       '<a href="/products/seyf-mdtb-es-30-e-el/">b</a>'),
+                       '<a href="/products/ofisnyy-seyf-mdtb-es-30-e/">b</a>'),
              "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD,
-             "https://www.safe.ru/products/seyf-mdtb-es-30-e-el/": other}
+             "https://www.safe.ru/products/ofisnyy-seyf-mdtb-es-30-e/": other}
     assert client(pages).images(["S1"]) == {
         "S1": "https://www.safe.ru/upload/iblock/a/b/detail_picture.jpg"}
 
@@ -318,7 +318,7 @@ def test_fallback_skipped_when_the_price_has_no_measurements():
 
 def test_client_refuses_a_model_code_that_is_too_broad():
     """Код, попадающий в десяток карточек, — это не поиск, а перебор."""
-    cards = "".join(f'<a href="/products/seyf-mdtb-es-30-e-{n}/">x</a>'
+    cards = "".join(f'<a href="/products/variant-{n}-seyf-mdtb-es-30-e/">x</a>'
                     for n in range(8))
     index = client({SECTION: cards})
     assert index.images(["S1"]) == {}
@@ -358,9 +358,40 @@ def test_card_without_measurements_is_refused_outside_the_section():
 def test_card_without_measurements_is_refused_when_there_are_rivals():
     """Два кандидата и ни у одного размеров — различить нечем."""
     pages = {SECTION: ('<a href="/products/seyf-mdtb-es-30-e/">a</a>'
-                       '<a href="/products/seyf-mdtb-es-30-e-el/">b</a>'),
+                       '<a href="/products/mebelnyy-seyf-mdtb-es-30-e/">b</a>'),
              "https://www.safe.ru/products/seyf-mdtb-es-30-e/": CARD_NO_SIZE,
-             "https://www.safe.ru/products/seyf-mdtb-es-30-e-el/": CARD_NO_SIZE}
+             "https://www.safe.ru/products/mebelnyy-seyf-mdtb-es-30-e/": CARD_NO_SIZE}
     index = client(pages)
     assert index.images(["S1"]) == {}
     assert index.skipped_no_measurements == 2
+
+
+def test_model_code_must_end_the_card_address():
+    """«Шкаф SL-125/2T» с кодом sl1252t не должен попадать в карточку
+    sl-125-2t-el: это соседняя модель с электронным замком, у неё те же
+    размеры до миллиметра, и габаритами их не различить."""
+    plain = Position("S1", "Шкаф SL-125/2T", SECTION, 1252, 460, 340, 30)
+    card = ("<h1>Бухгалтерский шкаф AIKO SL-125/2Т</h1>"
+            "Размеры внешние, мм (ВхШхГ): 1252x460x340 Вес, кг: 30"
+            '<img src="/upload/iblock/a/b/detail_picture.jpg">')
+    pages = {SECTION: ('<a href="/products/bukhgalterskiy-shkaf-aiko-sl-125-2t/">a</a>'
+                       '<a href="/products/bukhgalterskiy-shkaf-aiko-sl-125-2t-el/">b</a>'),
+             "https://www.safe.ru/products/bukhgalterskiy-shkaf-aiko-sl-125-2t/": card,
+             "https://www.safe.ru/products/bukhgalterskiy-shkaf-aiko-sl-125-2t-el/": card}
+    index = client(pages, catalog={"S1": plain})
+    assert index.images(["S1"]) == {
+        "S1": "https://www.safe.ru/upload/iblock/a/b/detail_picture.jpg"}
+    assert index.skipped_ambiguous == 0
+
+
+def test_the_electronic_variant_finds_its_own_card():
+    """А «Шкаф SL-125/2T.EL» находит именно свою."""
+    el = Position("S2", "Шкаф SL-125/2T.EL", SECTION, 1252, 460, 340, 30)
+    card = ("<h1>Бухгалтерский шкаф AIKO SL-125/2Т EL</h1>"
+            "Размеры внешние, мм (ВхШхГ): 1252x460x340 Вес, кг: 30"
+            '<img src="/upload/iblock/c/d/detail_picture.jpg">')
+    pages = {SECTION: ('<a href="/products/bukhgalterskiy-shkaf-aiko-sl-125-2t/">a</a>'
+                       '<a href="/products/bukhgalterskiy-shkaf-aiko-sl-125-2t-el/">b</a>'),
+             "https://www.safe.ru/products/bukhgalterskiy-shkaf-aiko-sl-125-2t-el/": card}
+    assert client(pages, catalog={"S2": el}).images(["S2"]) == {
+        "S2": "https://www.safe.ru/upload/iblock/c/d/detail_picture.jpg"}

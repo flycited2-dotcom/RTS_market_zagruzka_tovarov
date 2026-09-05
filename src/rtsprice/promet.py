@@ -508,12 +508,23 @@ class PrometClient:
         return self._all_cards
 
     def _match(self, position: Position, cards: Sequence[str]) -> list[str]:
-        """Карточки, чей адрес несёт код модели. Отбор, а не выбор."""
+        """Карточки, чей адрес оканчивается кодом модели. Отбор, а не выбор.
+
+        Именно оканчивается, а не содержит. Иначе «Шкаф SL-125/2T» с кодом
+        `sl1252t` попадает и в свою карточку, и в соседнюю `sl-125-2t-el`,
+        где тот же корпус с электронным замком. Размеры у них совпадают до
+        миллиметра, спор ими не разрешить, и обе позиции теряются — хотя у
+        каждой на сайте есть собственная карточка.
+
+        Адрес карточки устроен как «категория-бренд-модель»
+        (`bukhgalterskiy-shkaf-aiko-sl-125-2t`), поэтому код модели стоит
+        в конце, и суффикс — правильная граница.
+        """
         code = position.code
         if len(code) < 4:
             return []
         return [c for c in cards
-                if code in normalize(c.rstrip("/").rsplit("/", 1)[-1])]
+                if normalize(c.rstrip("/").rsplit("/", 1)[-1]).endswith(code)]
 
     def _confirm(self, position: Position, cards: Sequence[str],
                  strict: bool) -> tuple[str, str] | None:
