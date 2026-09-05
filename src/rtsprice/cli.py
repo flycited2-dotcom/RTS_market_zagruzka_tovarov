@@ -150,6 +150,11 @@ def _image_index(api: str, root: Path, args, sources=None, codes=()):
             )
         return DumpIndex(dumps, log=print), None
 
+    if api == "climate":
+        from .climate import ClimateImages
+
+        return ClimateImages.from_file(root / "input" / "climate" / "photos.json"), None
+
     if api == "promet":
         from .promet import PrometClient, read_catalog_map
 
@@ -172,6 +177,40 @@ def _image_index(api: str, root: Path, args, sources=None, codes=()):
         return PrometClient(catalog, log=print), None
 
     raise SystemExit(f"неизвестный источник снимков: {api!r}")
+
+
+def _refresh_climate(root: Path) -> int:
+    """Забрать живой срез климатического хаба и сохранить книгой.
+
+    Отдельная команда, а не часть сборки: это сетевая работа, а сборка
+    обязана оставаться быстрой и работать без интернета. Полученное
+    подхватит следующая сборка, как и любой другой прайс.
+    """
+    from .climate import ClimateError, fetch_catalog, save_photo_map, write_price
+
+    server = load_photo_server(root / "photos.yml")
+    if server is None:
+        raise SystemExit("не найден photos.yml — через него идёт запрос к хабу")
+    try:
+        products = fetch_catalog(server)
+    except ClimateError as exc:
+        raise SystemExit(str(exc)) from exc
+    if not products:
+        # Пустой каталог принимать нельзя: сборка сочтёт, что весь климат
+        # кончился, и выставит его на снятие с продажи.
+        raise SystemExit("хаб вернул пустой каталог — прайс не перезаписан")
+
+    folder = root / "input" / "climate"
+    written = write_price(folder / "climate.xlsx", products)
+    with_photo = save_photo_map(folder / "photos.json", products)
+    suppliers = {}
+    for item in products:
+        suppliers[item.supplier] = suppliers.get(item.supplier, 0) + 1
+    print(f"каталог хаба: {written} позиций, с фотографией {with_photo}")
+    for name, count in sorted(suppliers.items(), key=lambda x: -x[1]):
+        print(f"   {name}: {count}")
+    print(f"записано: {folder / 'climate.xlsx'}")
+    return 0
 
 
 def _fetch_photos(root: Path, args) -> int:
@@ -310,6 +349,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("source")
     p = sub.add_parser("uploaded", help="файл компании загружен: забыть удаления")
     p.add_argument("company")
+    sub.add_parser("climate", help="обновить каталог климатического хаба")
     p = sub.add_parser("photos", help="получить фотографии у поставщиков")
     p.add_argument("--source", nargs="*", help="только эти источники")
     p.add_argument("--limit", type=int, help="ограничить число позиций (для пробы)")
@@ -326,6 +366,8 @@ def main(argv: list[str] | None = None) -> int:
         count = clear_pending(Paths(root=root), args.company)
         print(f"{args.company}: подтверждено удалений — {count}")
         return 0
+    if args.command == "climate":
+        return _refresh_climate(root)
     if args.command == "photos":
         return _fetch_photos(root, args)
     if args.command in ("on", "off", "freeze"):

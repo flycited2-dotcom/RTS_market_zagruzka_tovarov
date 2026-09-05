@@ -258,3 +258,36 @@ priceopt:
     {name}
     Производитель: {brand}
     Категория: {group}
+
+climate:
+  title: "Климатическое оборудование"
+  # Единственный источник, приходящий не файлом от поставщика, а живым срезом
+  # хаба SplitHome: Бриз, Daichi, Русклимат, JAC. Каталог обновляется командой
+  # `python -m rtsprice climate`, она же кладёт карту снимков рядом с книгой.
+  photo_api: climate
+  photo_key: article
+  state: on
+  prefix: 17
+  file: "input/climate/*.xlsx"
+  sheets: ["Каталог"]
+  header_rows: [1]
+  data_starts_at: 2
+  row_is_product: price_not_empty
+  columns:
+    article: "Артикул"
+    name: "Наименование"
+    price: "Цена"
+    stock: "Остаток"
+    brand: "Бренд"
+    supplier: "Поставщик"
+    series: "Серия"
+  min_stock: 1
+  unit_default: "ШТ"
+  # Цена хаба — оптовая с НДС (в ответе API поле purchasePriceGross).
+  price_includes_vat: true
+  okpd2_default: "28.25.12.130"   # Кондиционеры бытовые
+  description_template: |
+    {name}
+    Производитель: {brand}
+    Серия: {series}
+    Поставщик: {supplier}
